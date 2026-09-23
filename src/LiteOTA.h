@@ -146,6 +146,7 @@ private:
     // Config
     const char *_currentVersion;
     const char *_manifestUrl;
+    
     uint32_t _checkInterval = 24UL * 3600UL;
     size_t _minFreeHeap = LITEOTA_DEFAULT_MIN_HEAP;
     uint8_t _maxRetries = 3;
