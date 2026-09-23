@@ -1,0 +1,28 @@
+name: Native Tests
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  test:
+    name: g++ on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        cxx: [g++, clang++]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set compiler
+        run: echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+
+      - name: Build
+        run: make -C test/native build
+
+      - name: Run tests
+        run: make -C test/native run

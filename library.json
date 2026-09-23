@@ -1,0 +1,49 @@
+{
+  "name": "LiteOTA",
+  "version": "1.0.0",
+  "description": "Ultra-lightweight non-blocking OTA updater for ESP8266 with JSON/plain-text manifest support, optional HTTPS, and MFLN buffer tuning.",
+  "keywords": "ota, esp8266, wemos, d1-mini, firmware, update, https, tls, mfln, non-blocking, kitronic",
+  "authors": [
+    {
+      "name": "Kitronic",
+      "email": "info@kitronic.tech",
+      "url": "https://www.kitronic.tech",
+      "maintainer": true
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kitronic/esp-lib-lite-ota.git"
+  },
+  "homepage": "https://github.com/kitronic/esp-lib-lite-ota",
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": "espressif8266",
+  "headers": "LiteOTA.h",
+  "export": {
+    "include": [
+      "src/*",
+      "examples/*",
+      "extras/*",
+      "README.md",
+      "CHANGELOG.md",
+      "LICENSE"
+    ],
+    "exclude": [
+      "test/*",
+      ".github/*",
+      ".gitignore",
+      "*.log"
+    ]
+  },
+  "dependencies": {
+    "bblanchon/ArduinoJson": "^6.19.0"
+  },
+  "build": {
+    "libLDFMode": "deep",
+    "flags": [
+      "-Wall",
+      "-Wextra"
+    ]
+  }
+}

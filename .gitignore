@@ -1,0 +1,40 @@
+# ─── Arduino ───
+build/
+*.bin
+*.elf
+*.hex
+*.map
+*.d
+*.o
+
+# ─── PlatformIO ───
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/.browse.c_cpp.db*
+
+# ─── Native tests ───
+test/native/run
+test/native/*.dSYM/
+test/native/*.o
+test/native/*.d
+
+# ─── IDE ───
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS ───
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Logs ───
+*.log
+npm-debug.log*
+
+# ─── Secrets ───
+secrets.h
+wifi_credentials.h

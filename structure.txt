@@ -1,0 +1,49 @@
+LiteOTA/
+├── .gitignore
+├── LICENSE
+├── README.md
+├── CHANGELOG.md
+├── library.properties          ← Arduino IDE
+├── library.json                ← PlatformIO
+├── platformio.ini              ← إعدادات الاختبار
+├── keywords.txt
+├── src/
+│   ├── LiteOTA.h
+│   └── LiteOTA.cpp
+├── examples/
+│   ├── Basic/
+│   │   └── Basic.ino
+│   ├── Scheduled/
+│   │   └── Scheduled.ino
+│   ├── ManualTrigger/
+│   │   └── ManualTrigger.ino
+│   ├── NonBlocking/
+│   │   └── NonBlocking.ino
+│   └── HTTPS-MixedMode/
+│       └── HTTPS-MixedMode.ino
+├── test/
+│   ├── README.md
+│   ├── native/
+│   │   └── test_native.cpp
+│   ├── embedded/
+│   │   ├── test_manifest_parse/
+│   │   │   └── test_manifest_parse.ino
+│   │   ├── test_version_compare/
+│   │   │   └── test_version_compare.ino
+│   │   ├── test_heap_guard/
+│   │   │   └── test_heap_guard.ino
+│   │   ├── test_callbacks/
+│   │   │   └── test_callbacks.ino
+│   │   ├── test_mfln/
+│   │   │   └── test_mfln.ino
+│   │   └── test_abort/
+│   │       └── test_abort.ino
+│   └── server/
+│       ├── project.json
+│       ├── project.txt
+│       └── serve.sh
+└── extras/
+    ├── server/
+    │   ├── project.json
+    │   └── project.txt
+    └── README-server.md

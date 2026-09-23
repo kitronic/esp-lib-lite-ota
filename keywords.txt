@@ -1,0 +1,56 @@
+#######################################
+# Syntax Coloring Map For LiteOTA
+# Kitronic — github.com/kitronic/esp-lib-lite-ota
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+LiteOTA	KEYWORD1
+LiteOTAState	KEYWORD1
+LiteOTAError	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+tick	KEYWORD2
+requestUpdate	KEYWORD2
+abort	KEYWORD2
+reset	KEYWORD2
+setCheckInterval	KEYWORD2
+setMinFreeHeap	KEYWORD2
+setMaxRetries	KEYWORD2
+setChunkSize	KEYWORD2
+setManifestUrl	KEYWORD2
+setInsecure	KEYWORD2
+setCACert	KEYWORD2
+isTLSEnabled	KEYWORD2
+setTLSBufferSizes	KEYWORD2
+enableMFLN	KEYWORD2
+onBeforeRequest	KEYWORD2
+onAfterRequest	KEYWORD2
+onProgress	KEYWORD2
+onStateChange	KEYWORD2
+isUpdating	KEYWORD2
+isError	KEYWORD2
+getState	KEYWORD2
+getLastError	KEYWORD2
+getStateName	KEYWORD2
+getLastErrorName	KEYWORD2
+getRemoteVersion	KEYWORD2
+getFirmwareUrl	KEYWORD2
+getManifestType	KEYWORD2
+getProgressPercent	KEYWORD2
+getBytesReceived	KEYWORD2
+getBytesTotal	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+LITEOTA_USE_TLS	LITERAL1
+LITEOTA_MAX_CHUNK	LITERAL1
+LITEOTA_DEFAULT_MIN_HEAP	LITERAL1
