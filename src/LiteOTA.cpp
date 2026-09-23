@@ -11,6 +11,11 @@
 
 #include "LiteOTA.h"
 
+extern "C"
+{
+#include <user_interface.h>
+}
+
 // ─────────────────────────────────────────────
 // RTC memory layout for boot-loop detection
 // ─────────────────────────────────────────────
@@ -28,13 +33,33 @@ static LiteOTARTCData _rtc;
 #define LITEOTA_MAX_BOOTS 3
 
 // ─────────────────────────────────────────────
-// Constructor
+// Constructor / Destructor
 // ─────────────────────────────────────────────
 LiteOTA::LiteOTA(const char *currentVersion, const char *manifestUrl)
     : _currentVersion(currentVersion), _manifestUrl(manifestUrl)
 {
     _remoteVersion[0] = '\0';
     _firmwareUrl[0] = '\0';
+}
+
+LiteOTA::~LiteOTA()
+{
+    if (_httpOpen)
+    {
+        _http.end();
+        _httpOpen = false;
+    }
+#if defined(LITEOTA_USE_ROLLBACK)
+    if (_backupFile)
+        _backupFile.close();
+#endif
+#if defined(LITEOTA_USE_TLS)
+    if (_caCertList)
+    {
+        delete _caCertList;
+        _caCertList = nullptr;
+    }
+#endif
 }
 
 // ─────────────────────────────────────────────
@@ -105,7 +130,6 @@ void LiteOTA::enableMFLN(uint16_t maxFragLen)
 {
 #if defined(LITEOTA_USE_TLS)
     _mfln = maxFragLen;
-    // MFLN limits the incoming record size → shrink RX buffer to match.
     if (maxFragLen > 0)
     {
         if (_tlsRxBuffer > maxFragLen)
@@ -143,6 +167,7 @@ void LiteOTA::_invokeAfter()
         _servicesPaused = false;
     }
 }
+
 // ─────────────────────────────────────────────
 // Safe Rollback — configuration
 // ─────────────────────────────────────────────
@@ -250,6 +275,16 @@ bool LiteOTA::_restoreFirmware()
         return false;
     }
 
+    // ⚡ Verify firmware magic byte (0xE9 = ESP8266 image)
+    uint8_t magic = f.read();
+    f.seek(0, SeekSet);
+    if (magic != 0xE9)
+    {
+        Serial.printf_P(PSTR("[LiteOTA] Invalid firmware magic: 0x%02X\n"), magic);
+        f.close();
+        return false;
+    }
+
     Serial.printf_P(PSTR("[LiteOTA] Restoring %u bytes...\n"), sz);
 
     if (!Update.begin(sz))
@@ -284,7 +319,7 @@ bool LiteOTA::_restoreFirmware()
 }
 
 // ─────────────────────────────────────────────
-// Safe Rollback — boot loop detection (called from begin())
+// Safe Rollback — boot loop detection
 // ─────────────────────────────────────────────
 void LiteOTA::_checkBootLoop()
 {
@@ -295,7 +330,6 @@ void LiteOTA::_checkBootLoop()
 
     if (_rtc.state == 1)
     {
-        // Update pending — this is a fresh boot after OTA
         _rtc.bootCount++;
         _saveRTC();
 
@@ -333,7 +367,7 @@ void LiteOTA::_checkBootLoop()
     }
     else if (_rtc.state == 2)
     {
-        // We were rolling back — clear stale state
+        // Stale rollback state — clear
         _rtc.state = 0;
         _rtc.bootCount = 0;
         _saveRTC();
@@ -385,6 +419,7 @@ bool LiteOTA::rollbackToPrevious()
     _lastError = LiteOTAError::ROLLBACK_FAIL;
     return false;
 }
+
 // ─────────────────────────────────────────────
 // Client selection
 // ─────────────────────────────────────────────
@@ -432,6 +467,14 @@ void LiteOTA::begin()
     _bootAt = millis();
 
 #if defined(LITEOTA_USE_ROLLBACK)
+    // ⚡ Auto-detect the current running firmware flash address
+    if (_sketchFlashAddr == 0)
+    {
+        _sketchFlashAddr = system_get_userbin_addr();
+        Serial.printf_P(PSTR("[LiteOTA] Auto sketch addr: 0x%06X\n"),
+                        _sketchFlashAddr);
+    }
+
     if (_rollbackEnabled)
     {
         if (!LittleFS.begin())
@@ -456,13 +499,15 @@ void LiteOTA::begin()
 }
 
 void LiteOTA::tick()
-{ // Auto-confirm boot after timeout
+{
+    // Auto-confirm boot after timeout
     if (_rollbackEnabled && _bootPending &&
         millis() - _bootAt > (_rollbackTimeout * 1000UL))
     {
         confirmBoot();
     }
-    // Timeout guard per state (60s)
+
+    // Per-state timeout guard (60s)
     if (_state != LiteOTAState::IDLE &&
         _state != LiteOTAState::ERROR_STATE &&
         _state != LiteOTAState::SUCCESS_REBOOT &&
@@ -500,6 +545,9 @@ void LiteOTA::tick()
     case LiteOTAState::PARSE_MANIFEST:
         _stepParseManifest();
         break;
+    case LiteOTAState::BACKUP_FIRMWARE:
+        _stepBackupFirmware();
+        break;
     case LiteOTAState::OPEN_FIRMWARE:
         _stepOpenFirmware();
         break;
@@ -519,11 +567,12 @@ void LiteOTA::tick()
 
     case LiteOTAState::SUCCESS_REBOOT:
         break;
-    case LiteOTAState::BACKUP_FIRMWARE:
-        _stepBackupFirmware();
-        break;
     }
 }
+
+// ─────────────────────────────────────────────
+// Step: Backup firmware (rollback only)
+// ─────────────────────────────────────────────
 void LiteOTA::_stepBackupFirmware()
 {
 #if defined(LITEOTA_USE_ROLLBACK)
@@ -543,13 +592,11 @@ void LiteOTA::_stepBackupFirmware()
             return;
         }
 
-        // Ensure directory exists
         if (!LittleFS.exists("/liteota"))
         {
             LittleFS.mkdir("/liteota");
         }
 
-        // Check free space
         FSInfo info;
         LittleFS.info(info);
         if (info.totalBytes - info.usedBytes < _backupSize + 4096)
@@ -559,7 +606,6 @@ void LiteOTA::_stepBackupFirmware()
             return;
         }
 
-        // Remove old backup
         if (LittleFS.exists(_rollbackPath))
         {
             LittleFS.remove(_rollbackPath);
@@ -572,7 +618,8 @@ void LiteOTA::_stepBackupFirmware()
             return;
         }
 
-        Serial.printf_P(PSTR("[LiteOTA] Backing up %u bytes...\n"), _backupSize);
+        Serial.printf_P(PSTR("[LiteOTA] Backing up %u bytes from 0x%06X...\n"),
+                        _backupSize, _sketchFlashAddr);
     }
 
     // Read one chunk from flash, write to FS
@@ -581,8 +628,8 @@ void LiteOTA::_stepBackupFirmware()
                         ? sizeof(buf)
                         : (_backupSize - _backupAddr);
 
-    if (!ESP.flashRead(_sketchFlashAddr + _backupAddr,
-                       (uint32_t *)buf, toRead))
+    // ⚡ No cast — flashRead accepts void*
+    if (!ESP.flashRead(_sketchFlashAddr + _backupAddr, buf, toRead))
     {
         _backupFile.close();
         _fail(LiteOTAError::BACKUP_FAIL);
@@ -618,18 +665,14 @@ void LiteOTA::_stepBackupFirmware()
 
         Serial.println(F("[LiteOTA] Backup complete."));
 
-        // Mark RTC: update pending
-        _loadRTC();
-        _rtc.state = 1;
-        _rtc.bootCount = 0;
-        _saveRTC();
-
+        // ⚡ We do NOT set the RTC flag here — it goes in _stepFinalize()
         _setState(LiteOTAState::OPEN_FIRMWARE);
     }
 #else
     _setState(LiteOTAState::OPEN_FIRMWARE);
 #endif
 }
+
 // ─────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────
@@ -675,6 +718,19 @@ void LiteOTA::abort()
         _backupFile.close();
         _backupAddr = 0;
     }
+    // ⚡ Clear stale RTC flag if it was set by a failed attempt
+    if (_rollbackEnabled && _fsMounted)
+    {
+        if (_loadRTC())
+        {
+            if (_rtc.state == 1)
+            {
+                _rtc.state = 0;
+                _rtc.bootCount = 0;
+                _saveRTC();
+            }
+        }
+    }
 #endif
 
     Update.end(false);
@@ -715,6 +771,8 @@ const char *LiteOTA::getStateName() const
         return "FETCH_MANIFEST";
     case LiteOTAState::PARSE_MANIFEST:
         return "PARSE_MANIFEST";
+    case LiteOTAState::BACKUP_FIRMWARE:
+        return "BACKUP_FIRMWARE";
     case LiteOTAState::OPEN_FIRMWARE:
         return "OPEN_FIRMWARE";
     case LiteOTAState::DOWNLOADING:
@@ -725,8 +783,6 @@ const char *LiteOTA::getStateName() const
         return "ERROR";
     case LiteOTAState::SUCCESS_REBOOT:
         return "SUCCESS";
-    case LiteOTAState::BACKUP_FIRMWARE:
-        return "BACKUP_FIRMWARE";
     }
     return "UNKNOWN";
 }
@@ -751,14 +807,6 @@ const char *LiteOTA::getLastErrorName() const
         return "PARSE_FAIL";
     case LiteOTAError::SAME_VERSION:
         return "SAME_VERSION";
-    case LiteOTAError::HTTP_FIRMWARE_FAIL:
-        return "HTTP_FIRMWARE_FAIL";
-    case LiteOTAError::UPDATE_BEGIN_FAIL:
-        return "UPDATE_BEGIN_FAIL";
-    case LiteOTAError::UPDATE_WRITE_FAIL:
-        return "UPDATE_WRITE_FAIL";
-    case LiteOTAError::TIMEOUT:
-        return "TIMEOUT";
     case LiteOTAError::BACKUP_FAIL:
         return "BACKUP_FAIL";
     case LiteOTAError::ROLLBACK_FAIL:
@@ -767,6 +815,14 @@ const char *LiteOTA::getLastErrorName() const
         return "NO_BACKUP";
     case LiteOTAError::FS_MOUNT_FAIL:
         return "FS_MOUNT_FAIL";
+    case LiteOTAError::HTTP_FIRMWARE_FAIL:
+        return "HTTP_FIRMWARE_FAIL";
+    case LiteOTAError::UPDATE_BEGIN_FAIL:
+        return "UPDATE_BEGIN_FAIL";
+    case LiteOTAError::UPDATE_WRITE_FAIL:
+        return "UPDATE_WRITE_FAIL";
+    case LiteOTAError::TIMEOUT:
+        return "TIMEOUT";
     }
     return "UNKNOWN";
 }
@@ -800,7 +856,6 @@ void LiteOTA::_setState(LiteOTAState s, LiteOTAError e)
 
 void LiteOTA::_fail(LiteOTAError e)
 {
-    // رجّع الخدمات قبل أي شي — حتى لو رح نعيد المحاولة
     _invokeAfter();
 
     if (_httpOpen)
@@ -808,6 +863,29 @@ void LiteOTA::_fail(LiteOTAError e)
         _http.end();
         _httpOpen = false;
     }
+
+    // ⚡ Cleanup backup file (if rollback was mid-backup)
+#if defined(LITEOTA_USE_ROLLBACK)
+    if (_backupFile)
+    {
+        _backupFile.close();
+    }
+    _backupAddr = 0;
+
+    // ⚡ Clear stale RTC flag (only if we hadn't reached finalize yet)
+    if (_rollbackEnabled && _fsMounted)
+    {
+        if (_loadRTC())
+        {
+            if (_rtc.state == 1)
+            {
+                _rtc.state = 0;
+                _rtc.bootCount = 0;
+                _saveRTC();
+            }
+        }
+    }
+#endif
 
     _lastError = e;
     Serial.printf_P(PSTR("[LiteOTA] Error: %s\n"), getLastErrorName());
@@ -861,7 +939,7 @@ void LiteOTA::_stepFetchManifest()
         _prepareSecureClient();
 #endif
 
-    _invokeBefore(); // ⚡ أوقف MQTT مؤقتاً
+    _invokeBefore();
 
     _http.begin(*client, url);
     _http.setUserAgent(F("LiteOTA/1.0 (Kitronic)"));
@@ -871,7 +949,7 @@ void LiteOTA::_stepFetchManifest()
     if (code != HTTP_CODE_OK)
     {
         _http.end();
-        _invokeAfter(); // ⚡ رجّع MQTT
+        _invokeAfter();
         _fail(LiteOTAError::HTTP_MANIFEST_FAIL);
         return;
     }
@@ -909,7 +987,7 @@ void LiteOTA::_stepParseManifest()
 
     _http.end();
     _httpOpen = false;
-    _invokeAfter(); // ⚡ خلص طلب المانيفست → رجّع MQTT
+    _invokeAfter();
 
     if (!ok)
     {
@@ -932,6 +1010,7 @@ void LiteOTA::_stepParseManifest()
         _fail(LiteOTAError::LOW_HEAP);
         return;
     }
+
 #if defined(LITEOTA_USE_ROLLBACK)
     if (_rollbackEnabled)
     {
@@ -959,7 +1038,7 @@ void LiteOTA::_stepOpenFirmware()
         _prepareSecureClient();
 #endif
 
-    _invokeBefore(); // ⚡ أوقف MQTT مؤقتاً
+    _invokeBefore();
 
     _http.begin(*client, url);
     _http.setUserAgent(F("LiteOTA/1.0 (Kitronic)"));
@@ -1066,7 +1145,7 @@ void LiteOTA::_stepDownload()
     {
         _http.end();
         _httpOpen = false;
-        _invokeAfter(); // ⚡ خلص التنزيل → رجّع MQTT
+        _invokeAfter();
         _setState(LiteOTAState::FINALIZING);
     }
 }
@@ -1080,6 +1159,20 @@ void LiteOTA::_stepFinalize()
 
     if (_progressCb)
         _progressCb(_bytesReceived, _bytesTotal, 100);
+
+    // ⚡ Set RTC flag NOW — firmware is downloaded and about to be applied
+#if defined(LITEOTA_USE_ROLLBACK)
+    if (_rollbackEnabled && _fsMounted)
+    {
+        if (_loadRTC())
+        {
+            _rtc.state = 1;
+            _rtc.bootCount = 0;
+            _saveRTC();
+            Serial.println(F("[LiteOTA] RTC: update pending"));
+        }
+    }
+#endif
 
     Update.end(true);
 

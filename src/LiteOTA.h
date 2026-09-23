@@ -21,14 +21,17 @@
 // #define LITEOTA_USE_ROLLBACK
 
 #if defined(LITEOTA_USE_TLS)
-  #include <WiFiClientSecure.h>
-  #include <BearSSLHelpers.h>
-  #define LITEOTA_DEFAULT_MIN_HEAP 25000
+#include <WiFiClientSecure.h>
+#include <BearSSLHelpers.h>
+#define LITEOTA_DEFAULT_MIN_HEAP 25000
 #else
-  #define LITEOTA_DEFAULT_MIN_HEAP 8000
+#define LITEOTA_DEFAULT_MIN_HEAP 8000
 #endif
 
 #define LITEOTA_MAX_CHUNK 512
+
+// Sentinel: "flash address not set yet"
+#define LITEOTA_FLASH_ADDR_AUTO 0xFFFFFFFFUL
 
 // ═══════════════════════════════════════════════════════════════
 //  LiteOTA — Non-blocking OTA updater for ESP8266
@@ -41,7 +44,8 @@
 //  MIT License — Copyright (c) 2024 Kitronic
 // ═══════════════════════════════════════════════════════════════
 
-enum class LiteOTAState : uint8_t {
+enum class LiteOTAState : uint8_t
+{
     IDLE = 0,
     FETCH_MANIFEST,
     PARSE_MANIFEST,
@@ -53,7 +57,8 @@ enum class LiteOTAState : uint8_t {
     SUCCESS_REBOOT
 };
 
-enum class LiteOTAError : uint8_t {
+enum class LiteOTAError : uint8_t
+{
     NONE = 0,
     WIFI_DOWN,
     LOW_HEAP,
@@ -76,9 +81,11 @@ typedef void (*LiteOTAProgressCallback)(size_t bytesReceived, size_t bytesTotal,
 typedef void (*LiteOTAStateCallback)(LiteOTAState state, LiteOTAError error);
 typedef void (*LiteOTAVoidCallback)();
 
-class LiteOTA {
+class LiteOTA
+{
 public:
-    LiteOTA(const char* currentVersion, const char* manifestUrl);
+    LiteOTA(const char *currentVersion, const char *manifestUrl);
+    ~LiteOTA();
 
     // ─── Lifecycle ───
     void begin();
@@ -89,11 +96,11 @@ public:
     void setMinFreeHeap(size_t bytes);
     void setMaxRetries(uint8_t retries);
     void setChunkSize(size_t bytes);
-    void setManifestUrl(const char* url);
+    void setManifestUrl(const char *url);
 
     // ─── TLS / HTTPS ───
     void setInsecure();
-    void setCACert(const char* caCert);
+    void setCACert(const char *caCert);
     bool isTLSEnabled() const;
     void setTLSBufferSizes(uint16_t rx, uint16_t tx);
     void enableMFLN(uint16_t maxFragLen = 1024);
@@ -105,7 +112,7 @@ public:
     // ─── Safe Rollback ───
     void enableSafeRollback(bool enable);
     void setRollbackTimeout(uint32_t seconds);
-    void setRollbackBackupPath(const char* path);
+    void setRollbackBackupPath(const char *path);
     void setSketchFlashAddress(uint32_t addr);
     bool isRollbackAvailable() const;
     bool rollbackToPrevious();
@@ -122,11 +129,11 @@ public:
     bool isError() const;
     LiteOTAState getState() const { return _state; }
     LiteOTAError getLastError() const { return _lastError; }
-    const char* getStateName() const;
-    const char* getLastErrorName() const;
-    const char* getRemoteVersion() const { return _remoteVersion; }
-    const char* getFirmwareUrl() const { return _firmwareUrl; }
-    const char* getManifestType() const;
+    const char *getStateName() const;
+    const char *getLastErrorName() const;
+    const char *getRemoteVersion() const { return _remoteVersion; }
+    const char *getFirmwareUrl() const { return _firmwareUrl; }
+    const char *getManifestType() const;
     uint8_t getProgressPercent() const { return _progressPercent; }
     size_t getBytesReceived() const { return _bytesReceived; }
     size_t getBytesTotal() const { return _bytesTotal; }
@@ -137,71 +144,76 @@ public:
 
 private:
     // Config
-    const char* _currentVersion;
-    const char* _manifestUrl;
+    const char *_currentVersion;
+    const char *_manifestUrl;
     uint32_t _checkInterval = 24UL * 3600UL;
-    size_t   _minFreeHeap   = LITEOTA_DEFAULT_MIN_HEAP;
-    uint8_t  _maxRetries    = 3;
-    size_t   _chunkSize     = LITEOTA_MAX_CHUNK;
+    size_t _minFreeHeap = LITEOTA_DEFAULT_MIN_HEAP;
+    uint8_t _maxRetries = 3;
+    size_t _chunkSize = LITEOTA_MAX_CHUNK;
 
     // Runtime
-    LiteOTAState  _state = LiteOTAState::IDLE;
-    LiteOTAError  _lastError = LiteOTAError::NONE;
+    LiteOTAState _state = LiteOTAState::IDLE;
+    LiteOTAError _lastError = LiteOTAError::NONE;
     unsigned long _stateEnteredAt = 0;
     unsigned long _lastCheckAt = 0;
-    bool          _updateRequested = false;
-    uint8_t       _retries = 0;
-    bool          _servicesPaused = false;
+    bool _updateRequested = false;
+    uint8_t _retries = 0;
+    bool _servicesPaused = false;
 
     // Parsed manifest
     char _remoteVersion[16];
     char _firmwareUrl[192];
-    enum ManifestType { MT_UNKNOWN = 0, MT_JSON, MT_TEXT };
+    enum ManifestType
+    {
+        MT_UNKNOWN = 0,
+        MT_JSON,
+        MT_TEXT
+    };
     ManifestType _manifestType = MT_UNKNOWN;
 
     // Rollback
-    bool          _rollbackEnabled  = false;
-    uint32_t      _rollbackTimeout  = 30;
-    char          _rollbackPath[64] = "/liteota/backup.bin";
-    uint32_t      _sketchFlashAddr  = 0x000000;
-    File          _backupFile;
-    uint32_t      _backupAddr = 0;
-    uint32_t      _backupSize = 0;
-    bool          _bootPending = false;
+    bool _rollbackEnabled = false;
+    uint32_t _rollbackTimeout = 30;
+    char _rollbackPath[64] = "/liteota/backup.bin";
+    uint32_t _sketchFlashAddr = LITEOTA_FLASH_ADDR_AUTO;
+    File _backupFile;
+    uint32_t _backupAddr = 0;
+    uint32_t _backupSize = 0;
+    bool _bootPending = false;
     unsigned long _bootAt = 0;
-    bool          _fsMounted = false;
+    bool _fsMounted = false;
 
     // HTTP / download — separate clients
     WiFiClient _plainClient;
 #if defined(LITEOTA_USE_TLS)
-    WiFiClientSecure   _secureClient;
-    BearSSL::X509List* _caCertList = nullptr;
-    bool               _insecure   = false;
-    uint16_t           _tlsRxBuffer = 16384;
-    uint16_t           _tlsTxBuffer = 512;
-    uint16_t           _mfln        = 0;
+    WiFiClientSecure _secureClient;
+    BearSSL::X509List *_caCertList = nullptr;
+    bool _insecure = false;
+    uint16_t _tlsRxBuffer = 16384;
+    uint16_t _tlsTxBuffer = 512;
+    uint16_t _mfln = 0;
 #endif
 
-    HTTPClient    _http;
-    bool          _httpOpen = false;
-    size_t        _bytesReceived = 0;
-    size_t        _bytesTotal    = 0;
-    uint8_t       _progressPercent = 0;
+    HTTPClient _http;
+    bool _httpOpen = false;
+    size_t _bytesReceived = 0;
+    size_t _bytesTotal = 0;
+    uint8_t _progressPercent = 0;
     unsigned long _lastDataAt = 0;
 
     // Callbacks
     LiteOTAProgressCallback _progressCb = nullptr;
-    LiteOTAStateCallback    _stateCb    = nullptr;
-    LiteOTAVoidCallback     _beforeCb   = nullptr;
-    LiteOTAVoidCallback     _afterCb    = nullptr;
+    LiteOTAStateCallback _stateCb = nullptr;
+    LiteOTAVoidCallback _beforeCb = nullptr;
+    LiteOTAVoidCallback _afterCb = nullptr;
 
     // Internals
     void _setState(LiteOTAState s, LiteOTAError e = LiteOTAError::NONE);
     void _fail(LiteOTAError e);
     bool _checkHeap() const;
     bool _shouldCheck() const;
-    bool _isHttps(const char* url) const;
-    WiFiClient* _pickClient(const char* url);
+    bool _isHttps(const char *url) const;
+    WiFiClient *_pickClient(const char *url);
     bool _prepareSecureClient();
     void _invokeBefore();
     void _invokeAfter();
@@ -221,9 +233,9 @@ private:
     void _stepFinalize();
 
     // Helpers
-    ManifestType _detectType(WiFiClient* stream);
-    bool _parseJson(WiFiClient* stream);
-    bool _parseText(WiFiClient* stream);
+    ManifestType _detectType(WiFiClient *stream);
+    bool _parseJson(WiFiClient *stream);
+    bool _parseText(WiFiClient *stream);
 };
 
 #endif
