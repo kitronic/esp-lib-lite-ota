@@ -30,6 +30,13 @@ setCACert	KEYWORD2
 isTLSEnabled	KEYWORD2
 setTLSBufferSizes	KEYWORD2
 enableMFLN	KEYWORD2
+enableSafeRollback	KEYWORD2
+setRollbackTimeout	KEYWORD2
+setRollbackBackupPath	KEYWORD2
+isRollbackAvailable	KEYWORD2
+rollbackToPrevious	KEYWORD2
+confirmBoot	KEYWORD2
+deleteRollbackBackup	KEYWORD2
 onBeforeRequest	KEYWORD2
 onAfterRequest	KEYWORD2
 onProgress	KEYWORD2
@@ -52,5 +59,6 @@ getBytesTotal	KEYWORD2
 #######################################
 
 LITEOTA_USE_TLS	LITERAL1
+LITEOTA_USE_ROLLBACK	LITERAL1
 LITEOTA_MAX_CHUNK	LITERAL1
 LITEOTA_DEFAULT_MIN_HEAP	LITERAL1

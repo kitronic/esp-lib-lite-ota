@@ -6,14 +6,19 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include <ArduinoJson.h>
+#include <FS.h>
+#include <LittleFS.h>
 
 // ═══════════════════════════════════════════════════════════════
 //  Compile-time options
 // ═══════════════════════════════════════════════════════════════
 
 // Uncomment to enable TLS/HTTPS support.
-// TLS costs ~25-35KB RAM during handshake. Consider using MFLN.
 // #define LITEOTA_USE_TLS
+
+// Uncomment to enable Safe Rollback support.
+// Required: LittleFS must be mounted and have ~500KB free.
+// #define LITEOTA_USE_ROLLBACK
 
 #if defined(LITEOTA_USE_TLS)
   #include <WiFiClientSecure.h>
@@ -23,8 +28,6 @@
   #define LITEOTA_DEFAULT_MIN_HEAP 8000
 #endif
 
-// Maximum firmware bytes read per tick() call.
-// Larger = faster download, more stack usage. Must be >= 128.
 #define LITEOTA_MAX_CHUNK 512
 
 // ═══════════════════════════════════════════════════════════════
@@ -35,11 +38,6 @@
 //  www.kitronic.tech
 //  https://github.com/kitronic/esp-lib-lite-ota
 //
-//  State-machine based, tick()-driven. Never blocks the main loop.
-//  Reads JSON or plain-text manifest, auto-detects format.
-//  Supports optional HTTPS with MFLN buffer tuning.
-//  Designed for Web + MQTT + OTA projects on Wemos D1 mini / D1 R2.
-//
 //  MIT License — Copyright (c) 2024 Kitronic
 // ═══════════════════════════════════════════════════════════════
 
@@ -47,6 +45,7 @@ enum class LiteOTAState : uint8_t {
     IDLE = 0,
     FETCH_MANIFEST,
     PARSE_MANIFEST,
+    BACKUP_FIRMWARE,
     OPEN_FIRMWARE,
     DOWNLOADING,
     FINALIZING,
@@ -63,6 +62,10 @@ enum class LiteOTAError : uint8_t {
     HTTP_MANIFEST_FAIL,
     PARSE_FAIL,
     SAME_VERSION,
+    BACKUP_FAIL,
+    ROLLBACK_FAIL,
+    NO_BACKUP,
+    FS_MOUNT_FAIL,
     HTTP_FIRMWARE_FAIL,
     UPDATE_BEGIN_FAIL,
     UPDATE_WRITE_FAIL,
@@ -92,14 +95,22 @@ public:
     void setInsecure();
     void setCACert(const char* caCert);
     bool isTLSEnabled() const;
-
-    // ─── TLS buffer tuning (MFLN) ───
     void setTLSBufferSizes(uint16_t rx, uint16_t tx);
     void enableMFLN(uint16_t maxFragLen = 1024);
 
     // ─── Cooperative handoff ───
     void onBeforeRequest(LiteOTAVoidCallback cb);
     void onAfterRequest(LiteOTAVoidCallback cb);
+
+    // ─── Safe Rollback ───
+    void enableSafeRollback(bool enable);
+    void setRollbackTimeout(uint32_t seconds);
+    void setRollbackBackupPath(const char* path);
+    void setSketchFlashAddress(uint32_t addr);
+    bool isRollbackAvailable() const;
+    bool rollbackToPrevious();
+    void confirmBoot();
+    void deleteRollbackBackup();
 
     // ─── Control ───
     void requestUpdate();
@@ -140,7 +151,7 @@ private:
     unsigned long _lastCheckAt = 0;
     bool          _updateRequested = false;
     uint8_t       _retries = 0;
-    bool          _servicesPaused = false;   // لحالة beforeCb/afterCb
+    bool          _servicesPaused = false;
 
     // Parsed manifest
     char _remoteVersion[16];
@@ -148,7 +159,19 @@ private:
     enum ManifestType { MT_UNKNOWN = 0, MT_JSON, MT_TEXT };
     ManifestType _manifestType = MT_UNKNOWN;
 
-    // HTTP / download — separate plain and secure clients
+    // Rollback
+    bool          _rollbackEnabled  = false;
+    uint32_t      _rollbackTimeout  = 30;
+    char          _rollbackPath[64] = "/liteota/backup.bin";
+    uint32_t      _sketchFlashAddr  = 0x000000;
+    File          _backupFile;
+    uint32_t      _backupAddr = 0;
+    uint32_t      _backupSize = 0;
+    bool          _bootPending = false;
+    unsigned long _bootAt = 0;
+    bool          _fsMounted = false;
+
+    // HTTP / download — separate clients
     WiFiClient _plainClient;
 #if defined(LITEOTA_USE_TLS)
     WiFiClientSecure   _secureClient;
@@ -183,9 +206,16 @@ private:
     void _invokeBefore();
     void _invokeAfter();
 
+    // Rollback internals
+    bool _loadRTC();
+    bool _saveRTC();
+    void _checkBootLoop();
+    bool _restoreFirmware();
+
     // State handlers
     void _stepFetchManifest();
     void _stepParseManifest();
+    void _stepBackupFirmware();
     void _stepOpenFirmware();
     void _stepDownload();
     void _stepFinalize();

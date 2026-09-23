@@ -23,6 +23,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Heap guard (`setMinFreeHeap`) — refuses update if free heap below threshold
 - No `malloc`, no heap fragmentation
 
+#### Safe Rollback (optional)
+- Automatic firmware backup to LittleFS before OTA
+- Boot-loop detection via RTC memory
+- Configurable backup path (`setRollbackBackupPath`)
+- Configurable boot confirmation timeout (`setRollbackTimeout`)
+- Automatic rollback after N failed boots (default: 3)
+- Manual rollback trigger (`rollbackToPrevious()`)
+- Boot confirmation (`confirmBoot()`) — auto-called from `tick()`
+- Backup management (`deleteRollbackBackup()`, `isRollbackAvailable()`)
+- `BACKUP_FIRMWARE` state in the state machine
+- New errors: `BACKUP_FAIL`, `ROLLBACK_FAIL`, `NO_BACKUP`, `FS_MOUNT_FAIL`
+- Enable with `#define LITEOTA_USE_ROLLBACK`
+
 #### TLS / HTTPS (optional)
 - Compile-time flag `LITEOTA_USE_TLS`
 - `setInsecure()` — skip certificate validation
@@ -64,10 +77,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `ManualTrigger` — HTTP endpoint + MQTT trigger
 - `NonBlocking` — full Web + MQTT + OTA integration
 - `HTTPS-MixedMode` — TLS manifest + HTTP firmware + MFLN + handoff
+- `SafeRollback` — automatic rollback on boot failure
 
 #### Tests
-- Native tests (`test/native/`) — g++ / make, no PlatformIO required
-- Embedded tests (`test/embedded/`) — 6 sketches for on-device verification
+- Native tests (`test/native/`) — g++ / make, no PlatformIO required (29 tests)
+- Embedded tests (`test/embedded/`) — 7 sketches including rollback
 - Local test server (`test/server/`)
 
 #### Misc
@@ -79,8 +93,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Known Limitations
 - HTTP only by default — HTTPS requires `#define LITEOTA_USE_TLS`
+- Rollback requires `#define LITEOTA_USE_ROLLBACK` and ~500 KB free LittleFS
+- Rollback cannot recover if `begin()` never executes (needs serial recovery)
 - No firmware signature verification
-- No rollback mechanism
 - Buffer sizes fixed at compile time (`_firmwareUrl[192]`)
 - Final apply step (`Update.end()`) triggers an unavoidable reboot
 
@@ -94,6 +109,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Multi-file / SPIFFS update support
 - Fallback AP mode on boot failure
 - ESP32 port
+- Rollback history (multiple firmware versions)
 
 ---
 

@@ -16,7 +16,7 @@ downloads + applies new firmware using `ESP8266HTTPUpdate` — all without
 blocking your main loop.
 
 **No `String`. No heap fragmentation. Optional HTTPS with MFLN.**
-**Built for Web + MQTT + OTA projects on tight RAM.**
+**Safe Rollback on boot failure. Built for Web + MQTT + OTA on tight RAM.**
 
 ---
 
@@ -38,6 +38,14 @@ blocking your main loop.
 - ✅ JSON manifest (auto-detected)
 - ✅ Plain-text manifest (auto-detected)
 - ✅ Optional `notes` field (ignored)
+
+### Safe Rollback (optional)
+- ✅ Automatic backup of current firmware before OTA
+- ✅ Boot-loop detection via RTC memory
+- ✅ Automatic restore after N failed boots (default: 3)
+- ✅ Manual rollback trigger (`rollbackToPrevious()`)
+- ✅ Backup stored in LittleFS
+- ✅ Enable with `#define LITEOTA_USE_ROLLBACK`
 
 ### TLS / HTTPS (optional)
 - ✅ Enable with `#define LITEOTA_USE_TLS` (compile-time)
@@ -151,19 +159,81 @@ IDLE ─(schedule/manual)─▶ FETCH_MANIFEST ─▶ PARSE_MANIFEST
                                     (same version)      (new version)
                                           │                   │
                                           ▼                   ▼
-                                       IDLE ◀── DOWNLOADING ◀─ OPEN_FIRMWARE
-                                                     │
-                                                     ▼
-                                                 FINALIZING ─▶ reboot
+                                       IDLE ◀─ BACKUP_FIRMWARE (if rollback)
+                                                                 │
+                                                                 ▼
+                                              OPEN_FIRMWARE ─▶ DOWNLOADING
+                                                                 │
+                                                                 ▼
+                                                             FINALIZING ─▶ reboot
 ```
 
 Each call to `tick()` advances one step:
 - HTTP GET (1–2 s, but cooperative — you can abort)
 - Parse manifest (instant)
+- Backup current firmware to LittleFS (rollback only, ~1 s)
 - Download one chunk (~512 B, ~10 ms)
 - Finalize (reboot)
 
 Between steps, your Web and MQTT code runs normally.
+
+---
+
+## 🔄 Safe Rollback
+
+Prevents bricking when a new firmware fails to boot.
+
+### How it works
+
+1. **Before OTA** — current firmware is copied to `/liteota/backup.bin` in LittleFS
+2. **RTC flag set** — marks "update pending"
+3. **New firmware boots** — must call `confirmBoot()` (or let `tick()` do it after 30 s)
+4. **If it crashes** before confirmation, RTC boot counter increments
+5. **After 3 failed boots** — old firmware is restored from backup
+
+### Enable it
+
+```cpp
+#define LITEOTA_USE_ROLLBACK
+#include <LiteOTA.h>
+
+void setup() {
+    // ...
+    ota.enableSafeRollback(true);
+    ota.setRollbackTimeout(30);   // seconds to confirm boot
+    ota.begin();
+    ota.requestUpdate();
+}
+
+void loop() {
+    ota.tick();   // auto-confirms boot after 30 s
+    yield();
+}
+```
+
+### API
+
+| Method | Description |
+|--------|-------------|
+| `enableSafeRollback(bool)` | Turn the feature on/off |
+| `setRollbackTimeout(sec)` | Seconds before boot is considered OK |
+| `setRollbackBackupPath(path)` | Where to store the backup (default `/liteota/backup.bin`) |
+| `isRollbackAvailable()` | True if a backup exists |
+| `rollbackToPrevious()` | Trigger a manual rollback (reboots) |
+| `confirmBoot()` | Manually confirm boot |
+| `deleteRollbackBackup()` | Delete the backup file |
+
+### Requirements
+
+- `#define LITEOTA_USE_ROLLBACK` before `#include <LiteOTA.h>`
+- LittleFS partition with **~500 KB free**
+- New firmware must reach `setup()` — if it crashes earlier, only serial recovery works
+
+### ⚠️ Notes
+
+- 3 failed boots trigger rollback (configurable via `setMaxRetries()` — no, this is fixed at 3)
+- Each OTA writes ~400 KB to flash — flash wear is a real consideration
+- Rollback will **not** trigger if the new firmware never runs `begin()`
 
 ---
 
@@ -236,27 +306,67 @@ If it still doesn't fit, move to **ESP32**.
 
 ## 🔧 API Reference
 
+### Lifecycle
+
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `LiteOTA(version, url)` | — | Constructor |
 | `begin()` | `void` | Initializes the state machine |
 | `tick()` | `void` | ⚡ Must be called every loop |
+
+### Control
+
+| Method | Returns | Description |
+|--------|---------|-------------|
 | `requestUpdate()` | `void` | Trigger an OTA cycle |
 | `abort()` | `void` | Cancel an in-flight update |
 | `reset()` | `void` | Reset state and error |
+
+### Configuration
+
+| Method | Returns | Description |
+|--------|---------|-------------|
 | `setCheckInterval(sec)` | `void` | Scheduled checks (default 24 h) |
 | `setMinFreeHeap(bytes)` | `void` | Heap guard (default 8 KB, 25 KB with TLS) |
 | `setMaxRetries(n)` | `void` | Retries on failure (default 3) |
 | `setChunkSize(bytes)` | `void` | Bytes per tick (default 512, max 512) |
 | `setManifestUrl(url)` | `void` | Change manifest at runtime |
-| `setInsecure()` | `void` | TLS: skip cert validation |
-| `setCACert(pem)` | `void` | TLS: install CA cert |
-| `setTLSBufferSizes(rx, tx)` | `void` | TLS: manual BearSSL buffers |
-| `enableMFLN(len)` | `void` | TLS: negotiate smaller fragments |
+
+### Rollback
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `enableSafeRollback(bool)` | `void` | Enable/disable |
+| `setRollbackTimeout(sec)` | `void` | Boot confirmation window |
+| `setRollbackBackupPath(path)` | `void` | Backup location |
+| `isRollbackAvailable()` | `bool` | Backup exists? |
+| `rollbackToPrevious()` | `bool` | Manual rollback |
+| `confirmBoot()` | `void` | Confirm successful boot |
+| `deleteRollbackBackup()` | `void` | Remove backup |
+
+### TLS / HTTPS
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `setInsecure()` | `void` | Skip cert validation |
+| `setCACert(pem)` | `void` | Install CA cert |
+| `isTLSEnabled()` | `bool` | TLS compiled in? |
+| `setTLSBufferSizes(rx, tx)` | `void` | Manual BearSSL buffers |
+| `enableMFLN(len)` | `void` | Negotiate smaller fragments |
+
+### Callbacks
+
+| Method | Returns | Description |
+|--------|---------|-------------|
 | `onProgress(cb)` | `void` | Called during download |
 | `onStateChange(cb)` | `void` | Called on state transitions |
 | `onBeforeRequest(cb)` | `void` | Pause services before an HTTP request |
 | `onAfterRequest(cb)` | `void` | Resume services after an HTTP request |
+
+### Status
+
+| Method | Returns | Description |
+|--------|---------|-------------|
 | `isUpdating()` | `bool` | True if an OTA cycle is active |
 | `isError()` | `bool` | True if in ERROR_STATE |
 | `getState()` | `LiteOTAState` | Current state enum |
@@ -281,6 +391,7 @@ If it still doesn't fit, move to **ESP32**.
 | `ManualTrigger` | Web endpoint + MQTT trigger |
 | `NonBlocking` | Full Web + MQTT + OTA integration |
 | `HTTPS-MixedMode` | TLS manifest + HTTP firmware + MFLN + handoff |
+| `SafeRollback` | Auto-rollback on boot failure |
 
 ---
 
@@ -306,17 +417,21 @@ See `test/README.md` for details.
 Open Serial Monitor at **115200 baud**. You'll see:
 
 ```
-[LiteOTA] Init. TLS:OFF Heap:45216
+[LiteOTA] Init. TLS:OFF RB:ON Heap:45216
 [LiteOTA] State: FETCH_MANIFEST
 [LiteOTA] State: PARSE_MANIFEST
 [LiteOTA] Remote:1.1 Current:1.0 Type:JSON
+[LiteOTA] State: BACKUP_FIRMWARE
+[LiteOTA] Backing up 345920 bytes...
+[LiteOTA] Backup complete.
 [LiteOTA] State: OPEN_FIRMWARE
 [LiteOTA] Downloading 345920 bytes...
 [PROGRESS] 1024/345920 (0%)
-[PROGRESS] 2048/345920 (0%)
 ...
 [LiteOTA] State: FINALIZING
 [LiteOTA] OK. Rebooting...
+[LiteOTA] Boot pending (1/3)
+[LiteOTA] Boot confirmed.
 ```
 
 Watch heap during a run:
@@ -332,11 +447,12 @@ If heap drops below 10 KB → expect failure.
 ## ⚠️ Limitations
 
 - **HTTP by default** — HTTPS requires `#define LITEOTA_USE_TLS`
+- **Rollback optional** — requires `#define LITEOTA_USE_ROLLBACK` + ~500 KB LittleFS
 - **No signature verification** — don't use over untrusted networks
-- **No automatic rollback** — if new firmware bricks, you need physical access
 - **Single firmware URL** — no delta or multi-part updates
 - **Buffer sizes fixed** — `_firmwareUrl[192]`, `_remoteVersion[16]`
 - **One OTA at a time** — no concurrent downloads
+- **Rollback can't recover if `begin()` never runs** — needs serial in that case
 
 ---
 

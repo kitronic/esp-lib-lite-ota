@@ -1,8 +1,8 @@
 {
   "name": "LiteOTA",
   "version": "1.0.0",
-  "description": "Ultra-lightweight non-blocking OTA updater for ESP8266 with JSON/plain-text manifest support, optional HTTPS, and MFLN buffer tuning.",
-  "keywords": "ota, esp8266, wemos, d1-mini, firmware, update, https, tls, mfln, non-blocking, kitronic",
+  "description": "Ultra-lightweight non-blocking OTA updater for ESP8266 with JSON/plain-text manifest support, optional HTTPS with MFLN, and safe rollback on boot failure.",
+  "keywords": "ota, esp8266, wemos, d1-mini, firmware, update, https, tls, mfln, rollback, boot-loop, non-blocking, kitronic",
   "authors": [
     {
       "name": "Kitronic",
