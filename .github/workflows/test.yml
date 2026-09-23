@@ -8,21 +8,30 @@ on:
 
 jobs:
   test:
-    name: g++ on ${{ matrix.os }}
+    name: ${{ matrix.cxx }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         cxx: [g++, clang++]
+        exclude:
+          # clang++ on ubuntu is fine; keep both on mac
+          - os: ubuntu-latest
+            cxx: clang++
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set compiler
-        run: echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
+      - name: Show compiler version
+        run: ${{ matrix.cxx }} --version
 
-      - name: Build
+      - name: Build tests
+        env:
+          CXX: ${{ matrix.cxx }}
         run: make -C test/native build
 
       - name: Run tests
+        env:
+          CXX: ${{ matrix.cxx }}
         run: make -C test/native run

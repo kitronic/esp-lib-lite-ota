@@ -14,7 +14,7 @@ build/
 .vscode/.browse.c_cpp.db*
 
 # ─── Native tests ───
-test/native/run
+test/native/test_runner
 test/native/*.dSYM/
 test/native/*.o
 test/native/*.d

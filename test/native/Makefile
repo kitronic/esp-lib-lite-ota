@@ -3,34 +3,34 @@
 # Kitronic — https://github.com/kitronic/esp-lib-lite-ota
 #
 # Usage:
-#   make          # build and run tests
-#   make build    # build only
-#   make run      # run only (must be built first)
-#   make clean    # remove binaries
-#   make valgrind # run under valgrind (if installed)
+#   make            # build and run tests
+#   make build      # build only
+#   make run        # run only (must be built first)
+#   make clean      # remove binaries
+#   make valgrind   # run under valgrind (if installed)
 
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Wconversion
 LDFLAGS  ?=
 
-TARGET   := run
+BIN      := test_runner
 SRC      := test_native.cpp
 
 .PHONY: all build run clean valgrind
 
 all: build run
 
-build: $(TARGET)
+build: $(BIN)
 
-$(TARGET): $(SRC)
+$(BIN): $(SRC)
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
-run: $(TARGET)
-	./$(TARGET)
+run: $(BIN)
+	./$(BIN)
 
-valgrind: $(TARGET)
-	valgrind --leak-check=full --error-exitcode=1 ./$(TARGET)
+valgrind: $(BIN)
+	valgrind --leak-check=full --error-exitcode=1 ./$(BIN)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(BIN)
 	rm -rf *.dSYM

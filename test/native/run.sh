@@ -15,15 +15,15 @@ cd "$(dirname "$0")"
 
 CXX="${CXX:-g++}"
 CXXFLAGS=(-std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow)
-TARGET="run"
+BIN="test_runner"
 
 echo "▸ Compiler: $CXX"
 echo "▸ Flags:    ${CXXFLAGS[*]}"
 echo
 
-"$CXX" "${CXXFLAGS[@]}" -o "$TARGET" test_native.cpp
+"$CXX" "${CXXFLAGS[@]}" -o "$BIN" test_native.cpp
 
 echo "▸ Running tests..."
 echo
 
-"./$TARGET"
+"./$BIN"
