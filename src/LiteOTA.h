@@ -203,7 +203,7 @@ private:
     // Rollback
     bool _rollbackEnabled = false;
     uint32_t _rollbackTimeout = 30;
-    char _rollbackPath[64] = "/liteota/backup.bin";
+    char _rollbackPath[64];
     uint32_t _sketchFlashAddr = LITEOTA_FLASH_ADDR_AUTO;
     File _backupFile;
     uint32_t _backupAddr = 0;
@@ -239,9 +239,9 @@ private:
     // ─── Web ───
 #if defined(LITEOTA_USE_WEB)
     ESP8266WebServer *_webServer = nullptr;
-    char _webUser[32] = {0};
-    char _webPass[64] = {0};
-    char _webPrefix[16] = {0};
+    char _webUser[32];
+    char _webPass[64];
+    char _webPrefix[16];
     bool _webAuthOn = false;
     bool _webAutoReboot = true;
     bool _uploadActive = false;

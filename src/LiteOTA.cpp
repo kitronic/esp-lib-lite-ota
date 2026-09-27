@@ -36,10 +36,22 @@ static LiteOTARTCData _rtc;
 // Constructor / Destructor
 // ─────────────────────────────────────────────
 LiteOTA::LiteOTA(const char *currentVersion, const char *manifestUrl)
-    : _currentVersion(currentVersion), _manifestUrl(manifestUrl)
 {
+    _currentVersion = currentVersion;
+    _manifestUrl = manifestUrl;
+    
     _remoteVersion[0] = '\0';
     _firmwareUrl[0] = '\0';
+
+    // تهيئة مصفوفة المسار
+    strncpy(_rollbackPath, "/liteota/backup.bin", sizeof(_rollbackPath) - 1);
+    _rollbackPath[sizeof(_rollbackPath) - 1] = '\0';
+
+#if defined(LITEOTA_USE_WEB)
+    _webUser[0] = '\0';
+    _webPass[0] = '\0';
+    _webPrefix[0] = '\0';
+#endif
 }
 
 LiteOTA::~LiteOTA()
