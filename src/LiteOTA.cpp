@@ -39,7 +39,7 @@ LiteOTA::LiteOTA(const char *currentVersion, const char *manifestUrl)
 {
     _currentVersion = currentVersion;
     _manifestUrl = manifestUrl;
-    
+
     _remoteVersion[0] = '\0';
     _firmwareUrl[0] = '\0';
 
@@ -639,20 +639,26 @@ void LiteOTA::_stepBackupFirmware()
     }
 
     // Read one chunk from flash, write to FS
-    uint8_t buf[1024];
+    // Read one chunk from flash, write to FS
+    // ⚡ Core 3.x flashRead requires uint32_t* (aligned to 4 bytes)
+    uint32_t buf[256]; // 1024 bytes
     size_t toRead = (_backupSize - _backupAddr) > sizeof(buf)
                         ? sizeof(buf)
                         : (_backupSize - _backupAddr);
 
-    // ⚡ No cast — flashRead accepts void*
-    if (!ESP.flashRead(_sketchFlashAddr + _backupAddr, buf, toRead))
+    // Round up to multiple of 4 for flashRead
+    size_t aligned = (toRead + 3u) & ~3u;
+    if (aligned > sizeof(buf))
+        aligned = sizeof(buf);
+
+    if (!ESP.flashRead(_sketchFlashAddr + _backupAddr, buf, aligned))
     {
         _backupFile.close();
         _fail(LiteOTAError::BACKUP_FAIL);
         return;
     }
 
-    if (_backupFile.write(buf, toRead) != toRead)
+    if (_backupFile.write((const uint8_t *)buf, toRead) != toRead)
     {
         _backupFile.close();
         _fail(LiteOTAError::BACKUP_FAIL);
@@ -1301,11 +1307,69 @@ bool LiteOTA::_parseText(WiFiClient *stream)
 // ═════════════════════════════════════════════
 //  Web endpoints (LITEOTA_USE_WEB)
 // ═════════════════════════════════════════════
+// ═════════════════════════════════════════════
+//  Web endpoints (LITEOTA_USE_WEB) — Zero String
+// ═════════════════════════════════════════════
 #if defined(LITEOTA_USE_WEB)
 
+// ─── HTML templates in PROGMEM (zero heap) ───
+static const char HTML_HEAD[] PROGMEM =
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>LiteOTA Update</title>"
+    "<style>body{font-family:system-ui,sans-serif;max-width:640px;"
+    "margin:40px auto;padding:0 20px;background:#f4f4f7;color:#222}"
+    "h1{color:#4a6cf7}h2{font-size:1rem;color:#666;margin-top:0}"
+    ".card{background:#fff;padding:24px;border-radius:12px;"
+    "box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:20px}"
+    "input[type=file]{display:block;width:100%;padding:12px;"
+    "border:2px dashed #cbd5e0;border-radius:8px;margin:16px 0;"
+    "background:#fafafa;box-sizing:border-box}"
+    "button{background:#4a6cf7;color:#fff;border:0;padding:12px 24px;"
+    "border-radius:8px;font-size:1rem;cursor:pointer}"
+    "button:hover{background:#3b5bdb}"
+    "pre{background:#f8f9fa;padding:12px;border-radius:6px;"
+    "overflow:auto;font-size:.85rem}"
+    "a{color:#4a6cf7}"
+    ".kitronic{font-size:.8rem;color:#888;text-align:center;margin-top:30px}"
+    "</style></head><body><h1>LiteOTA</h1>";
+
+static const char HTML_FORM_START[] PROGMEM =
+    "<div class='card'><h2>Firmware Upload</h2>"
+    "<form method='POST' action='";
+
+static const char HTML_FORM_MID[] PROGMEM =
+    "/update' enctype='multipart/form-data'>"
+    "<input type='file' name='firmware' accept='.bin' required>"
+    "<button type='submit'>Upload &amp; Flash</button></form></div>";
+
+static const char HTML_OTA_START[] PROGMEM =
+    "<div class='card'><h2>Server OTA</h2><p><a href='";
+
+static const char HTML_LINK_OTA[] PROGMEM = "/ota'>Trigger</a> · <a href='";
+static const char HTML_LINK_STATUS[] PROGMEM = "/ota/status'>Status</a> · <a href='";
+static const char HTML_LINK_ABORT[] PROGMEM = "/ota/abort'>Abort</a>";
+
+#if defined(LITEOTA_USE_ROLLBACK)
+static const char HTML_LINK_RB1[] PROGMEM = " · <a href='";
+static const char HTML_LINK_RB2[] PROGMEM = "/ota/rollback'>Rollback</a>";
+#endif
+
+static const char HTML_OTA_END[] PROGMEM = "</p></div>";
+
+static const char HTML_STATUS_START[] PROGMEM =
+    "<div class='card'><h2>Status</h2><pre>";
+
+static const char HTML_FOOTER[] PROGMEM =
+    "</pre></div>"
+    "<div class='kitronic'>Kitronic · www.kitronic.tech</div>"
+    "</body></html>";
+
 // ─── Configuration ───
-void LiteOTA::attachWebServer(ESP8266WebServer* server) {
-    if (!server) {
+void LiteOTA::attachWebServer(ESP8266WebServer *server)
+{
+    if (!server)
+    {
         Serial.println(F("[LiteOTA] attachWebServer: null server"));
         return;
     }
@@ -1317,14 +1381,17 @@ void LiteOTA::attachWebServer(ESP8266WebServer* server) {
     Serial.println(F("[LiteOTA] Web endpoints registered (no auth)"));
 }
 
-void LiteOTA::attachWebServer(ESP8266WebServer* server,
-                              const char* user, const char* pass) {
-    if (!server) {
+void LiteOTA::attachWebServer(ESP8266WebServer *server,
+                              const char *user, const char *pass)
+{
+    if (!server)
+    {
         Serial.println(F("[LiteOTA] attachWebServer: null server"));
         return;
     }
-    if (!user || !pass || !*user || !*pass) {
-        Serial.println(F("[LiteOTA] attachWebServer: empty credentials -> no auth"));
+    if (!user || !pass || !*user || !*pass)
+    {
+        Serial.println(F("[LiteOTA] attachWebServer: empty creds -> no auth"));
         attachWebServer(server);
         return;
     }
@@ -1338,290 +1405,331 @@ void LiteOTA::attachWebServer(ESP8266WebServer* server,
     Serial.println(F("[LiteOTA] Web endpoints registered (auth ON)"));
 }
 
-void LiteOTA::setWebPrefix(const char* prefix) {
-    if (!prefix) {
+void LiteOTA::setWebPrefix(const char *prefix)
+{
+    if (!prefix)
+    {
         _webPrefix[0] = '\0';
         return;
     }
     strncpy(_webPrefix, prefix, sizeof(_webPrefix) - 1);
     _webPrefix[sizeof(_webPrefix) - 1] = '\0';
     size_t n = strlen(_webPrefix);
-    if (n > 0 && _webPrefix[n - 1] == '/') _webPrefix[n - 1] = '\0';
+    if (n > 0 && _webPrefix[n - 1] == '/')
+        _webPrefix[n - 1] = '\0';
 }
 
-void LiteOTA::setWebAutoReboot(bool enable) {
+void LiteOTA::setWebAutoReboot(bool enable)
+{
     _webAutoReboot = enable;
 }
 
-String LiteOTA::_webPrefixStr() const {
-    return String(_webPrefix);
-}
-
-bool LiteOTA::_webRequireAuth() {
-    if (!_webAuthOn) return true;
-    if (_webServer->authenticate(_webUser, _webPass)) return true;
+bool LiteOTA::_webRequireAuth()
+{
+    if (!_webAuthOn)
+        return true;
+    if (_webServer->authenticate(_webUser, _webPass))
+        return true;
     _webServer->requestAuthentication();
     return false;
 }
 
-// ─── GET /update ───
-void LiteOTA::_webHandleUpdatePage() {
-    if (!_webRequireAuth()) return;
+// ─── GET /update ─── (chunked, PROGMEM, zero String)
+void LiteOTA::_webHandleUpdatePage()
+{
+    if (!_webRequireAuth())
+        return;
 
-    String p = _webPrefixStr();
-    String html;
-    html.reserve(1400);
-    html += F("<!DOCTYPE html><html><head><meta charset='utf-8'>");
-    html += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
-    html += F("<title>LiteOTA Update</title>");
-    html += F("<style>body{font-family:system-ui,sans-serif;max-width:640px;");
-    html += F("margin:40px auto;padding:0 20px;background:#f4f4f7;color:#222}");
-    html += F("h1{color:#4a6cf7}h2{font-size:1rem;color:#666;margin-top:0}");
-    html += F(".card{background:#fff;padding:24px;border-radius:12px;");
-    html += F("box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:20px}");
-    html += F("input[type=file]{display:block;width:100%;padding:12px;");
-    html += F("border:2px dashed #cbd5e0;border-radius:8px;margin:16px 0;");
-    html += F("background:#fafafa;box-sizing:border-box}");
-    html += F("button{background:#4a6cf7;color:#fff;border:0;padding:12px 24px;");
-    html += F("border-radius:8px;font-size:1rem;cursor:pointer}");
-    html += F("button:hover{background:#3b5bdb}");
-    html += F("pre{background:#f8f9fa;padding:12px;border-radius:6px;");
-    html += F("overflow:auto;font-size:.85rem}");
-    html += F("a{color:#4a6cf7}");
-    html += F(".kitronic{font-size:.8rem;color:#888;text-align:center;margin-top:30px}");
-    html += F("</style></head><body>");
-    html += F("<h1>LiteOTA</h1>");
+    // Start chunked response
+    _webServer->setContentLength(CONTENT_LENGTH_UNKNOWN);
+    _webServer->send_P(200, PSTR("text/html"), HTML_HEAD);
 
     // Upload form
-    html += F("<div class='card'><h2>Firmware Upload</h2>");
-    html += F("<form method='POST' action='"); html += p; html += F("/update' ");
-    html += F("enctype='multipart/form-data'>");
-    html += F("<input type='file' name='firmware' accept='.bin' required>");
-    html += F("<button type='submit'>Upload &amp; Flash</button></form></div>");
+    _webServer->sendContent_P(HTML_FORM_START);
+    _webServer->sendContent(_webPrefix); // dynamic prefix (RAM)
+    _webServer->sendContent_P(HTML_FORM_MID);
 
-    // Server OTA
-    html += F("<div class='card'><h2>Server OTA</h2><p>");
-    html += F("<a href='"); html += p; html += F("/ota'>Trigger</a> · ");
-    html += F("<a href='"); html += p; html += F("/ota/status'>Status</a> · ");
-    html += F("<a href='"); html += p; html += F("/ota/abort'>Abort</a>");
+    // Server OTA links
+    _webServer->sendContent_P(HTML_OTA_START);
+    _webServer->sendContent(_webPrefix);
+    _webServer->sendContent_P(HTML_LINK_OTA);
+    _webServer->sendContent(_webPrefix);
+    _webServer->sendContent_P(HTML_LINK_STATUS);
+    _webServer->sendContent(_webPrefix);
+    _webServer->sendContent_P(HTML_LINK_ABORT);
 #if defined(LITEOTA_USE_ROLLBACK)
-    html += F(" · <a href='"); html += p; html += F("/ota/rollback'>Rollback</a>");
+    _webServer->sendContent_P(HTML_LINK_RB1);
+    _webServer->sendContent(_webPrefix);
+    _webServer->sendContent_P(HTML_LINK_RB2);
 #endif
-    html += F("</p></div>");
+    _webServer->sendContent_P(HTML_OTA_END);
 
-    // Status
-    html += F("<div class='card'><h2>Status</h2><pre>");
-    html += F("Version   : "); html += _currentVersion; html += F("\n");
-    html += F("State     : "); html += getStateName(); html += F("\n");
-    html += F("LastError : "); html += getLastErrorName(); html += F("\n");
-    html += F("TLS       : "); html += (isTLSEnabled() ? "ON" : "OFF"); html += F("\n");
-    html += F("Rollback  : "); html += (_rollbackEnabled ? "ON" : "OFF"); html += F("\n");
-    html += F("Free heap : "); html += String(ESP.getFreeHeap()); html += F(" bytes\n");
-    html += F("Uptime    : "); html += String(millis() / 1000); html += F(" s\n");
-    html += F("</pre></div>");
+    // Status block
+    _webServer->sendContent_P(HTML_STATUS_START);
 
-    html += F("<div class='kitronic'>Kitronic · www.kitronic.tech</div>");
-    html += F("</body></html>");
+    char buf[80];
+    snprintf_P(buf, sizeof(buf), PSTR("Version   : %s\n"), _currentVersion);
+    _webServer->sendContent(buf);
 
-    _webServer->send(200, "text/html", html);
+    snprintf_P(buf, sizeof(buf), PSTR("State     : %s\n"), getStateName());
+    _webServer->sendContent(buf);
+
+    snprintf_P(buf, sizeof(buf), PSTR("LastError : %s\n"), getLastErrorName());
+    _webServer->sendContent(buf);
+
+    snprintf_P(buf, sizeof(buf), PSTR("TLS       : %s\n"),
+               isTLSEnabled() ? "ON" : "OFF");
+    _webServer->sendContent(buf);
+
+    snprintf_P(buf, sizeof(buf), PSTR("Rollback  : %s\n"),
+               _rollbackEnabled ? "ON" : "OFF");
+    _webServer->sendContent(buf);
+
+    snprintf_P(buf, sizeof(buf), PSTR("Free heap : %u bytes\n"),
+               (unsigned)ESP.getFreeHeap());
+    _webServer->sendContent(buf);
+
+    snprintf_P(buf, sizeof(buf), PSTR("Uptime    : %lu s\n"),
+               (unsigned long)(millis() / 1000));
+    _webServer->sendContent(buf);
+
+    _webServer->sendContent_P(HTML_FOOTER);
+    _webServer->sendContent(""); // end chunked
 }
 
 // ─── POST /update ───
-void LiteOTA::_webHandleUpdateUpload() {
-    if (!_webRequireAuth()) return;
+void LiteOTA::_webHandleUpdateUpload()
+{
+    if (!_webRequireAuth())
+        return;
 
-    HTTPUpload& up = _webServer->upload();
+    HTTPUpload &up = _webServer->upload();
 
-    switch (up.status) {
+    switch (up.status)
+    {
 
-        case UPLOAD_FILE_START: {
-            Serial.printf_P(PSTR("[LiteOTA] Web upload start: %s (%u bytes)\n"),
-                            up.filename.c_str(), up.totalSize);
+    case UPLOAD_FILE_START:
+    {
+        Serial.printf_P(PSTR("[LiteOTA] Web upload: %s (%u bytes)\n"),
+                        up.filename.c_str(), up.totalSize);
+        _uploadActive = true;
+        _uploadAuthorized = true;
+        _uploadBytes = 0;
 
-            _uploadActive     = true;
-            _uploadAuthorized = true;
-            _uploadBytes      = 0;
+        uint32_t maxSketch = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+        if (!Update.begin(maxSketch, U_FLASH))
+        {
+            _uploadAuthorized = false;
+            Serial.print(F("[LiteOTA] Update.begin failed: "));
+            Update.printError(Serial);
+            Serial.println();
+            return;
+        }
 
-            uint32_t maxSketch = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
-            if (!Update.begin(maxSketch, U_FLASH)) {
-                _uploadAuthorized = false;
-                Serial.printf_P(PSTR("[LiteOTA] Update.begin failed: %s\n"),
-                                Update.getErrorString());
-                return;
-            }
-
-            // Mark RTC as update-pending (rollback)
 #if defined(LITEOTA_USE_ROLLBACK)
-            if (_rollbackEnabled && _fsMounted) {
-                if (_loadRTC()) {
-                    _rtc.state     = 1;
-                    _rtc.bootCount = 0;
-                    _saveRTC();
-                }
+        if (_rollbackEnabled && _fsMounted)
+        {
+            if (_loadRTC())
+            {
+                _rtc.state = 1;
+                _rtc.bootCount = 0;
+                _saveRTC();
             }
+        }
 #endif
-            break;
+        break;
+    }
+
+    case UPLOAD_FILE_WRITE:
+    {
+        if (!_uploadAuthorized)
+            return;
+        if (Update.write(up.buf, up.currentSize) != up.currentSize)
+        {
+            Serial.print(F("[LiteOTA] Update.write failed: "));
+            Update.printError(Serial);
+            Serial.println();
+            _uploadAuthorized = false;
+            return;
         }
+        _uploadBytes += up.currentSize;
 
-        case UPLOAD_FILE_WRITE: {
-            if (!_uploadAuthorized) return;
-
-            if (Update.write(up.buf, up.currentSize) != up.currentSize) {
-                Serial.printf_P(PSTR("[LiteOTA] Update.write failed: %s\n"),
-                                Update.getErrorString());
-                _uploadAuthorized = false;
-                return;
-            }
-
-            _uploadBytes += up.currentSize;
-
-            // Throttled progress log
-            static uint32_t lastLog = 0;
-            if (millis() - lastLog > 1000) {
-                lastLog = millis();
-                Serial.printf_P(PSTR("[LiteOTA] Web upload: %u bytes\n"),
-                                _uploadBytes);
-            }
-            break;
+        static uint32_t lastLog = 0;
+        if (millis() - lastLog > 1000)
+        {
+            lastLog = millis();
+            Serial.printf_P(PSTR("[LiteOTA] Web upload: %u bytes\n"),
+                            (unsigned)_uploadBytes);
         }
+        break;
+    }
 
-        case UPLOAD_FILE_END: {
-            _uploadActive = false;
-            if (!_uploadAuthorized) {
-                Update.end(false);
-                Serial.println(F("[LiteOTA] Upload aborted"));
-                return;
-            }
-
-            if (!Update.end(true)) {
-                Serial.printf_P(PSTR("[LiteOTA] Update.end failed: %s\n"),
-                                Update.errorString());
-                _webServer->send(500, "text/plain",
-                    String("Update failed: ") + Update.getErrorString());
-                return;
-            }
-
-            Serial.printf_P(PSTR("[LiteOTA] Web upload OK: %u bytes\n"), _uploadBytes);
-
-            _webServer->send(200, "text/html",
-                F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
-                  "<title>Rebooting</title></head><body style='font-family:sans-serif;"
-                  "max-width:640px;margin:40px auto;padding:0 20px'>"
-                  "<h1 style='color:#4a6cf7'>&#10003; Update Successful</h1>"
-                  "<p>Device is rebooting with the new firmware...</p>"
-                  "<p>Refresh in ~10 seconds.</p></body></html>"));
-
-            delay(300);
-            ESP.restart();
-            break;
-        }
-
-        case UPLOAD_FILE_ABORTED: {
-            _uploadActive = false;
+    case UPLOAD_FILE_END:
+    {
+        _uploadActive = false;
+        if (!_uploadAuthorized)
+        {
             Update.end(false);
-            Serial.println(F("[LiteOTA] Upload aborted by client"));
-            break;
+            Serial.println(F("[LiteOTA] Upload aborted"));
+            return;
         }
+        if (!Update.end(true))
+        {
+            Serial.print(F("[LiteOTA] Update.end failed: "));
+            Update.printError(Serial);
+            Serial.println();
+
+            _webServer->send_P(500, PSTR("text/plain"),
+                               PSTR("Update failed. Check serial."));
+            return;
+        }
+
+        Serial.printf_P(PSTR("[LiteOTA] Web upload OK: %u bytes\n"),
+                        (unsigned)_uploadBytes);
+
+        _webServer->send_P(200, PSTR("text/html"),
+                           PSTR("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                                "<title>Rebooting</title></head>"
+                                "<body style='font-family:sans-serif;max-width:640px;"
+                                "margin:40px auto;padding:0 20px'>"
+                                "<h1 style='color:#4a6cf7'>&#10003; Update Successful</h1>"
+                                "<p>Device is rebooting with the new firmware...</p>"
+                                "<p>Refresh in ~10 seconds.</p></body></html>"));
+
+        delay(300);
+        ESP.restart();
+        break;
+    }
+
+    case UPLOAD_FILE_ABORTED:
+    {
+        _uploadActive = false;
+        Update.end(false);
+        Serial.println(F("[LiteOTA] Upload aborted by client"));
+        break;
+    }
     }
 }
 
 // ─── GET /ota ───
-void LiteOTA::_webHandleOtaTrigger() {
-    if (!_webRequireAuth()) return;
+void LiteOTA::_webHandleOtaTrigger()
+{
+    if (!_webRequireAuth())
+        return;
     requestUpdate();
-    _webServer->send(200, "application/json",
-        F("{\"ok\":true,\"msg\":\"update requested\"}"));
+    _webServer->send_P(200, PSTR("application/json"),
+                       PSTR("{\"ok\":true,\"msg\":\"update requested\"}"));
 }
 
 // ─── GET /ota/status ───
-void LiteOTA::_webHandleOtaStatus() {
-    if (!_webRequireAuth()) return;
+void LiteOTA::_webHandleOtaStatus()
+{
+    if (!_webRequireAuth())
+        return;
 
-    String json;
-    json.reserve(256);
-    json += F("{\"state\":\""); json += getStateName(); json += F("\",");
-    json += F("\"error\":\""); json += getLastErrorName(); json += F("\",");
-    json += F("\"version\":\""); json += _currentVersion; json += F("\",");
-    json += F("\"remote\":\""); json += _remoteVersion; json += F("\",");
-    json += F("\"progress\":"); json += String(_progressPercent); json += F(",");
-    json += F("\"bytesReceived\":"); json += String(_bytesReceived); json += F(",");
-    json += F("\"bytesTotal\":"); json += String(_bytesTotal); json += F(",");
-    json += F("\"updating\":"); json += (isUpdating() ? "true" : "false"); json += F(",");
-    json += F("\"heap\":"); json += String(ESP.getFreeHeap()); json += F("}");
-    _webServer->send(200, "application/json", json);
+    char buf[192];
+    snprintf_P(buf, sizeof(buf),
+               PSTR("{\"state\":\"%s\",\"error\":\"%s\",\"version\":\"%s\","
+                    "\"remote\":\"%s\",\"progress\":%u,\"bytesReceived\":%u,"
+                    "\"bytesTotal\":%u,\"updating\":%s,\"heap\":%u}"),
+               getStateName(), getLastErrorName(), _currentVersion,
+               _remoteVersion, (unsigned)_progressPercent, (unsigned)_bytesReceived,
+               (unsigned)_bytesTotal, isUpdating() ? "true" : "false",
+               (unsigned)ESP.getFreeHeap());
+    _webServer->send(200, "application/json", buf);
 }
 
 // ─── GET /ota/abort ───
-void LiteOTA::_webHandleOtaAbort() {
-    if (!_webRequireAuth()) return;
+void LiteOTA::_webHandleOtaAbort()
+{
+    if (!_webRequireAuth())
+        return;
     abort();
-    _webServer->send(200, "application/json",
-        F("{\"ok\":true,\"msg\":\"aborted\"}"));
+    _webServer->send_P(200, PSTR("application/json"),
+                       PSTR("{\"ok\":true,\"msg\":\"aborted\"}"));
 }
 
 // ─── GET /ota/rollback ───
 #if defined(LITEOTA_USE_ROLLBACK)
-void LiteOTA::_webHandleOtaRollback() {
-    if (!_webRequireAuth()) return;
-    if (!isRollbackAvailable()) {
-        _webServer->send(404, "application/json",
-            F("{\"ok\":false,\"msg\":\"no backup available\"}"));
+void LiteOTA::_webHandleOtaRollback()
+{
+    if (!_webRequireAuth())
+        return;
+    if (!isRollbackAvailable())
+    {
+        _webServer->send_P(404, PSTR("application/json"),
+                           PSTR("{\"ok\":false,\"msg\":\"no backup available\"}"));
         return;
     }
-    _webServer->send(200, "application/json",
-        F("{\"ok\":true,\"msg\":\"rollback starting\"}"));
+    _webServer->send_P(200, PSTR("application/json"),
+                       PSTR("{\"ok\":true,\"msg\":\"rollback starting\"}"));
     delay(200);
     rollbackToPrevious();
 }
 #endif
 
 // ─── Route registration ───
-void LiteOTA::_webRegisterRoutes() {
-    if (!_webServer) return;
+void LiteOTA::_webRegisterRoutes()
+{
+    if (!_webServer)
+        return;
 
-    String p = _webPrefixStr();
+    // Build route paths in static local buffers (ESP8266WebServer copies them)
+    static char pathUpdate[32];
+    static char pathOta[32];
+    static char pathStatus[32];
+    static char pathAbort[32];
+#if defined(LITEOTA_USE_ROLLBACK)
+    static char pathRollback[32];
+#endif
+
+    snprintf_P(pathUpdate, sizeof(pathUpdate), PSTR("%s/update"), _webPrefix);
+    snprintf_P(pathOta, sizeof(pathOta), PSTR("%s/ota"), _webPrefix);
+    snprintf_P(pathStatus, sizeof(pathStatus), PSTR("%s/ota/status"), _webPrefix);
+    snprintf_P(pathAbort, sizeof(pathAbort), PSTR("%s/ota/abort"), _webPrefix);
+#if defined(LITEOTA_USE_ROLLBACK)
+    snprintf_P(pathRollback, sizeof(pathRollback),
+               PSTR("%s/ota/rollback"), _webPrefix);
+#endif
 
     // GET /update
-    _webServer->on((p + "/update").c_str(), HTTP_GET, [this]() {
-        _webHandleUpdatePage();
-    });
+    _webServer->on(pathUpdate, HTTP_GET, [this]()
+                   { _webHandleUpdatePage(); });
 
     // POST /update
-    _webServer->on((p + "/update").c_str(), HTTP_POST,
-        [this]() {
-            if (!_webRequireAuth()) return;
-            if (!_uploadAuthorized) {
-                _webServer->send(400, "text/plain", "Upload failed");
-                return;
-            }
-            // Response was sent inside UPLOAD_FILE_END
-        },
-        [this]() { _webHandleUpdateUpload(); }
-    );
+    _webServer->on(pathUpdate, HTTP_POST, [this]()
+                   {
+                       if (!_webRequireAuth())
+                           return;
+                       if (!_uploadAuthorized)
+                       {
+                           _webServer->send_P(400, PSTR("text/plain"), PSTR("Upload failed"));
+                           return;
+                       }
+                       // Response sent inside UPLOAD_FILE_END
+                   },
+                   [this]()
+                   { _webHandleUpdateUpload(); });
 
     // GET /ota
-    _webServer->on((p + "/ota").c_str(), HTTP_GET, [this]() {
-        _webHandleOtaTrigger();
-    });
+    _webServer->on(pathOta, HTTP_GET, [this]()
+                   { _webHandleOtaTrigger(); });
 
     // GET /ota/status
-    _webServer->on((p + "/ota/status").c_str(), HTTP_GET, [this]() {
-        _webHandleOtaStatus();
-    });
+    _webServer->on(pathStatus, HTTP_GET, [this]()
+                   { _webHandleOtaStatus(); });
 
     // GET /ota/abort
-    _webServer->on((p + "/ota/abort").c_str(), HTTP_GET, [this]() {
-        _webHandleOtaAbort();
-    });
+    _webServer->on(pathAbort, HTTP_GET, [this]()
+                   { _webHandleOtaAbort(); });
 
 #if defined(LITEOTA_USE_ROLLBACK)
     // GET /ota/rollback
-    _webServer->on((p + "/ota/rollback").c_str(), HTTP_GET, [this]() {
-        _webHandleOtaRollback();
-    });
+    _webServer->on(pathRollback, HTTP_GET, [this]()
+                   { _webHandleOtaRollback(); });
 #endif
 
-    Serial.printf_P(PSTR("[LiteOTA] Web endpoints registered at \"%s\" prefix\n"),
+    Serial.printf_P(PSTR("[LiteOTA] Web endpoints registered at \"%s\"\n"),
                     _webPrefix);
 }
 

@@ -13,15 +13,8 @@
 //  Compile-time options
 // ═══════════════════════════════════════════════════════════════
 
-// Uncomment to enable TLS/HTTPS support.
 // #define LITEOTA_USE_TLS
-
-// Uncomment to enable Safe Rollback support.
-// Required: LittleFS must be mounted and have ~500KB free.
 // #define LITEOTA_USE_ROLLBACK
-
-// Uncomment to enable built-in web endpoints (/update, /ota, /ota/status).
-// Requires an existing ESP8266WebServer instance.
 // #define LITEOTA_USE_WEB
 
 #if defined(LITEOTA_USE_TLS)
@@ -37,18 +30,11 @@
 #endif
 
 #define LITEOTA_MAX_CHUNK 512
-
-// Sentinel: "flash address not set yet"
 #define LITEOTA_FLASH_ADDR_AUTO 0xFFFFFFFFUL
 
 // ═══════════════════════════════════════════════════════════════
 //  LiteOTA — Non-blocking OTA updater for ESP8266
-//
-//  Kitronic
-//  info@kitronic.tech
-//  www.kitronic.tech
-//  https://github.com/kitronic/esp-lib-lite-ota
-//
+//  Kitronic — info@kitronic.tech — www.kitronic.tech
 //  MIT License — Copyright (c) 2024 Kitronic
 // ═══════════════════════════════════════════════════════════════
 
@@ -152,27 +138,14 @@ public:
 
     // ─── Web endpoints (requires LITEOTA_USE_WEB) ───
 #if defined(LITEOTA_USE_WEB)
-    /**
-     * Attach to an existing ESP8266WebServer.
-     * Registers: GET /update, POST /update, /ota, /ota/status, /ota/abort
-     * (and /ota/rollback when LITEOTA_USE_ROLLBACK is defined).
-     */
     void attachWebServer(ESP8266WebServer *server);
-
-    /** Same, with HTTP Basic Auth on all endpoints. */
     void attachWebServer(ESP8266WebServer *server,
-                         const char *user,
-                         const char *pass);
-
-    /** Customize URL prefix (default ""). E.g. "/ota" → /ota/update, /ota/ota... */
+                         const char *user, const char *pass);
     void setWebPrefix(const char *prefix);
-
-    /** Show/hide reboot behavior after web upload (default: true). */
     void setWebAutoReboot(bool enable);
 #endif
 
 private:
-    // Config
     const char *_currentVersion;
     const char *_manifestUrl;
     uint32_t _checkInterval = 24UL * 3600UL;
@@ -180,7 +153,6 @@ private:
     uint8_t _maxRetries = 3;
     size_t _chunkSize = LITEOTA_MAX_CHUNK;
 
-    // Runtime
     LiteOTAState _state = LiteOTAState::IDLE;
     LiteOTAError _lastError = LiteOTAError::NONE;
     unsigned long _stateEnteredAt = 0;
@@ -189,7 +161,6 @@ private:
     uint8_t _retries = 0;
     bool _servicesPaused = false;
 
-    // Parsed manifest
     char _remoteVersion[16];
     char _firmwareUrl[192];
     enum ManifestType
@@ -200,7 +171,6 @@ private:
     };
     ManifestType _manifestType = MT_UNKNOWN;
 
-    // Rollback
     bool _rollbackEnabled = false;
     uint32_t _rollbackTimeout = 30;
     char _rollbackPath[64];
@@ -212,7 +182,6 @@ private:
     unsigned long _bootAt = 0;
     bool _fsMounted = false;
 
-    // HTTP / download — separate clients
     WiFiClient _plainClient;
 #if defined(LITEOTA_USE_TLS)
     WiFiClientSecure _secureClient;
@@ -230,13 +199,11 @@ private:
     uint8_t _progressPercent = 0;
     unsigned long _lastDataAt = 0;
 
-    // Callbacks
     LiteOTAProgressCallback _progressCb = nullptr;
     LiteOTAStateCallback _stateCb = nullptr;
     LiteOTAVoidCallback _beforeCb = nullptr;
     LiteOTAVoidCallback _afterCb = nullptr;
 
-    // ─── Web ───
 #if defined(LITEOTA_USE_WEB)
     ESP8266WebServer *_webServer = nullptr;
     char _webUser[32];
@@ -258,10 +225,8 @@ private:
     void _webHandleOtaRollback();
 #endif
     bool _webRequireAuth();
-    String _webPrefixStr() const;
 #endif
 
-    // Internals
     void _setState(LiteOTAState s, LiteOTAError e = LiteOTAError::NONE);
     void _fail(LiteOTAError e);
     bool _checkHeap() const;
@@ -272,13 +237,11 @@ private:
     void _invokeBefore();
     void _invokeAfter();
 
-    // Rollback internals
     bool _loadRTC();
     bool _saveRTC();
     void _checkBootLoop();
     bool _restoreFirmware();
 
-    // State handlers
     void _stepFetchManifest();
     void _stepParseManifest();
     void _stepBackupFirmware();
@@ -286,7 +249,6 @@ private:
     void _stepDownload();
     void _stepFinalize();
 
-    // Helpers
     ManifestType _detectType(WiFiClient *stream);
     bool _parseJson(WiFiClient *stream);
     bool _parseText(WiFiClient *stream);
