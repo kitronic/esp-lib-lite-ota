@@ -63,11 +63,9 @@ void setup() {
 void loop() {
     ota.tick();
 
-    // ⚠️ If you deliberately want to test rollback:
-    // Comment out ota.tick() before the timeout expires,
-    // or trigger ESP.restart() manually within 30s.
-    // The library will detect the boot loop after 3 attempts
-    // and restore the previous firmware.
+    // ⚠️ To test rollback:
+    // Trigger ESP.restart() within 30s before confirmBoot() fires.
+    // After 3 failed boots, the library restores the previous firmware.
 
     yield();
 }

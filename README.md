@@ -16,7 +16,8 @@ downloads + applies new firmware using `ESP8266HTTPUpdate` — all without
 blocking your main loop.
 
 **No `String`. No heap fragmentation. Optional HTTPS with MFLN.**
-**Safe Rollback on boot failure. Built for Web + MQTT + OTA on tight RAM.**
+**Safe Rollback on boot failure. Built-in `/update` web page.**
+**Built for Web + MQTT + OTA on tight RAM.**
 
 ---
 
@@ -46,6 +47,16 @@ blocking your main loop.
 - ✅ Manual rollback trigger (`rollbackToPrevious()`)
 - ✅ Backup stored in LittleFS
 - ✅ Enable with `#define LITEOTA_USE_ROLLBACK`
+
+### Built-in Web Endpoints (optional)
+- ✅ `/update` — HTML upload page with status panel
+- ✅ `/ota` — trigger server OTA
+- ✅ `/ota/status` — JSON status
+- ✅ `/ota/abort` — cancel in-flight OTA
+- ✅ `/ota/rollback` — manual rollback (with rollback enabled)
+- ✅ HTTP Basic Auth (optional)
+- ✅ Custom URL prefix
+- ✅ Enable with `#define LITEOTA_USE_WEB`
 
 ### TLS / HTTPS (optional)
 - ✅ Enable with `#define LITEOTA_USE_TLS` (compile-time)
@@ -179,6 +190,76 @@ Between steps, your Web and MQTT code runs normally.
 
 ---
 
+## 🌐 Built-in Web Endpoints (Optional)
+
+Enable with `#define LITEOTA_USE_WEB`. Adds a `/update` page plus JSON
+control endpoints, mounted on your existing `ESP8266WebServer`.
+
+```cpp
+#define LITEOTA_USE_WEB
+#include <ESP8266WebServer.h>
+#include <LiteOTA.h>
+
+ESP8266WebServer server(80);
+LiteOTA ota("1.0", "http://your-server.com/project.json");
+
+void setup() {
+    // ...
+    WiFi.begin("ssid", "pass");
+    while (WiFi.status() != WL_CONNECTED) { delay(500); yield(); }
+
+    server.begin();
+
+    // Attach with optional HTTP Basic Auth
+    ota.attachWebServer(&server, "admin", "admin");
+
+    // Optional: mount under a prefix instead of root
+    // ota.setWebPrefix("/ota");   // → /ota/update, /ota/ota, ...
+
+    ota.begin();
+}
+
+void loop() {
+    server.handleClient();
+    ota.tick();
+    yield();
+}
+```
+
+### Endpoints
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| GET  | `/update` | HTML upload form + status panel |
+| POST | `/update` | Upload firmware `.bin` |
+| GET  | `/ota` | Trigger server-based OTA |
+| GET  | `/ota/status` | JSON status (state, progress, heap) |
+| GET  | `/ota/abort` | Cancel in-flight OTA |
+| GET  | `/ota/rollback` | Manual rollback (if `LITEOTA_USE_ROLLBACK`) |
+
+### Configuration
+
+```cpp
+ota.attachWebServer(&server);              // open access
+ota.attachWebServer(&server, "u", "p");    // basic auth
+ota.setWebPrefix("/ota");                  // → /ota/update, /ota/ota ...
+ota.setWebAutoReboot(true);                // reboot after upload (default)
+```
+
+### Cost
+
+- ~3–4 KB flash (HTML stored in PROGMEM via `F()` macros)
+- ~500 bytes RAM when idle
+- **Zero cost** when `LITEOTA_USE_WEB` is not defined
+
+### Notes
+
+- The upload form uses `multipart/form-data`
+- Compatible with existing routes on the same server
+- Rollback flag (RTC) is set automatically before applying an uploaded firmware
+
+---
+
 ## 🔄 Safe Rollback
 
 Prevents bricking when a new firmware fails to boot.
@@ -186,7 +267,7 @@ Prevents bricking when a new firmware fails to boot.
 ### How it works
 
 1. **Before OTA** — current firmware is copied to `/liteota/backup.bin` in LittleFS
-2. **RTC flag set** — marks "update pending"
+2. **RTC flag set** — marks "update pending" (only after download completes)
 3. **New firmware boots** — must call `confirmBoot()` (or let `tick()` do it after 30 s)
 4. **If it crashes** before confirmation, RTC boot counter increments
 5. **After 3 failed boots** — old firmware is restored from backup
@@ -218,6 +299,7 @@ void loop() {
 | `enableSafeRollback(bool)` | Turn the feature on/off |
 | `setRollbackTimeout(sec)` | Seconds before boot is considered OK |
 | `setRollbackBackupPath(path)` | Where to store the backup (default `/liteota/backup.bin`) |
+| `setSketchFlashAddress(addr)` | Override auto-detected running firmware address |
 | `isRollbackAvailable()` | True if a backup exists |
 | `rollbackToPrevious()` | Trigger a manual rollback (reboots) |
 | `confirmBoot()` | Manually confirm boot |
@@ -231,9 +313,10 @@ void loop() {
 
 ### ⚠️ Notes
 
-- 3 failed boots trigger rollback (configurable via `setMaxRetries()` — no, this is fixed at 3)
+- 3 failed boots trigger rollback (fixed at 3, not `setMaxRetries`)
 - Each OTA writes ~400 KB to flash — flash wear is a real consideration
 - Rollback will **not** trigger if the new firmware never runs `begin()`
+- Firmware magic byte (0xE9) is verified before restore
 
 ---
 
@@ -332,6 +415,15 @@ If it still doesn't fit, move to **ESP32**.
 | `setChunkSize(bytes)` | `void` | Bytes per tick (default 512, max 512) |
 | `setManifestUrl(url)` | `void` | Change manifest at runtime |
 
+### Web Endpoints
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `attachWebServer(server)` | `void` | Mount endpoints (no auth) |
+| `attachWebServer(server, user, pass)` | `void` | Mount with HTTP Basic Auth |
+| `setWebPrefix(prefix)` | `void` | URL prefix (default `""`) |
+| `setWebAutoReboot(bool)` | `void` | Auto-reboot after upload (default `true`) |
+
 ### Rollback
 
 | Method | Returns | Description |
@@ -339,6 +431,7 @@ If it still doesn't fit, move to **ESP32**.
 | `enableSafeRollback(bool)` | `void` | Enable/disable |
 | `setRollbackTimeout(sec)` | `void` | Boot confirmation window |
 | `setRollbackBackupPath(path)` | `void` | Backup location |
+| `setSketchFlashAddress(addr)` | `void` | Override flash address |
 | `isRollbackAvailable()` | `bool` | Backup exists? |
 | `rollbackToPrevious()` | `bool` | Manual rollback |
 | `confirmBoot()` | `void` | Confirm successful boot |
@@ -392,6 +485,7 @@ If it still doesn't fit, move to **ESP32**.
 | `NonBlocking` | Full Web + MQTT + OTA integration |
 | `HTTPS-MixedMode` | TLS manifest + HTTP firmware + MFLN + handoff |
 | `SafeRollback` | Auto-rollback on boot failure |
+| `WebUpdate` | Built-in `/update` page with basic auth |
 
 ---
 
@@ -422,13 +516,14 @@ Open Serial Monitor at **115200 baud**. You'll see:
 [LiteOTA] State: PARSE_MANIFEST
 [LiteOTA] Remote:1.1 Current:1.0 Type:JSON
 [LiteOTA] State: BACKUP_FIRMWARE
-[LiteOTA] Backing up 345920 bytes...
+[LiteOTA] Backing up 345920 bytes from 0x000000...
 [LiteOTA] Backup complete.
 [LiteOTA] State: OPEN_FIRMWARE
 [LiteOTA] Downloading 345920 bytes...
 [PROGRESS] 1024/345920 (0%)
 ...
 [LiteOTA] State: FINALIZING
+[LiteOTA] RTC: update pending
 [LiteOTA] OK. Rebooting...
 [LiteOTA] Boot pending (1/3)
 [LiteOTA] Boot confirmed.
@@ -448,6 +543,7 @@ If heap drops below 10 KB → expect failure.
 
 - **HTTP by default** — HTTPS requires `#define LITEOTA_USE_TLS`
 - **Rollback optional** — requires `#define LITEOTA_USE_ROLLBACK` + ~500 KB LittleFS
+- **Web endpoints optional** — require `#define LITEOTA_USE_WEB`
 - **No signature verification** — don't use over untrusted networks
 - **Single firmware URL** — no delta or multi-part updates
 - **Buffer sizes fixed** — `_firmwareUrl[192]`, `_remoteVersion[16]`

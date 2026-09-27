@@ -1,10 +1,7 @@
 /*
  * LiteOTA Manual Trigger Example
  *
- * Kitronic
- * info@kitronic.tech
- * www.kitronic.tech
- * https://github.com/kitronic/esp-lib-lite-ota
+ * Kitronic — https://github.com/kitronic/esp-lib-lite-ota
  *
  * Adds a /ota HTTP endpoint to an existing web server.
  * Hit it from a browser to trigger an update on demand.
@@ -17,9 +14,9 @@
 #include <PubSubClient.h>
 #include <LiteOTA.h>
 
-#define WIFI_SSID     "your-ssid"
-#define WIFI_PASSWORD "your-password"
-#define MQTT_HOST     "broker.local"
+#define WIFI_SSID       "your-ssid"
+#define WIFI_PASSWORD   "your-password"
+#define MQTT_HOST       "broker.local"
 #define CURRENT_VERSION "1.0"
 
 ESP8266WebServer server(80);
@@ -80,6 +77,8 @@ void setup() {
 
     server.begin();
     Serial.println(F("HTTP server started."));
+
+    ota.begin();
 }
 
 void loop() {
@@ -90,8 +89,9 @@ void loop() {
     if (manualTrigger) {
         manualTrigger = false;
         Serial.println(F("[Manual] Running OTA now..."));
-        ota.checkAndUpdate();
+        ota.requestUpdate();
     }
 
+    ota.tick();
     yield();
 }

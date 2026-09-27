@@ -20,12 +20,20 @@
 // Required: LittleFS must be mounted and have ~500KB free.
 // #define LITEOTA_USE_ROLLBACK
 
+// Uncomment to enable built-in web endpoints (/update, /ota, /ota/status).
+// Requires an existing ESP8266WebServer instance.
+// #define LITEOTA_USE_WEB
+
 #if defined(LITEOTA_USE_TLS)
 #include <WiFiClientSecure.h>
 #include <BearSSLHelpers.h>
 #define LITEOTA_DEFAULT_MIN_HEAP 25000
 #else
 #define LITEOTA_DEFAULT_MIN_HEAP 8000
+#endif
+
+#if defined(LITEOTA_USE_WEB)
+#include <ESP8266WebServer.h>
 #endif
 
 #define LITEOTA_MAX_CHUNK 512
@@ -142,11 +150,31 @@ public:
     void onProgress(LiteOTAProgressCallback cb) { _progressCb = cb; }
     void onStateChange(LiteOTAStateCallback cb) { _stateCb = cb; }
 
+    // ─── Web endpoints (requires LITEOTA_USE_WEB) ───
+#if defined(LITEOTA_USE_WEB)
+    /**
+     * Attach to an existing ESP8266WebServer.
+     * Registers: GET /update, POST /update, /ota, /ota/status, /ota/abort
+     * (and /ota/rollback when LITEOTA_USE_ROLLBACK is defined).
+     */
+    void attachWebServer(ESP8266WebServer *server);
+
+    /** Same, with HTTP Basic Auth on all endpoints. */
+    void attachWebServer(ESP8266WebServer *server,
+                         const char *user,
+                         const char *pass);
+
+    /** Customize URL prefix (default ""). E.g. "/ota" → /ota/update, /ota/ota... */
+    void setWebPrefix(const char *prefix);
+
+    /** Show/hide reboot behavior after web upload (default: true). */
+    void setWebAutoReboot(bool enable);
+#endif
+
 private:
     // Config
     const char *_currentVersion;
     const char *_manifestUrl;
-    
     uint32_t _checkInterval = 24UL * 3600UL;
     size_t _minFreeHeap = LITEOTA_DEFAULT_MIN_HEAP;
     uint8_t _maxRetries = 3;
@@ -207,6 +235,31 @@ private:
     LiteOTAStateCallback _stateCb = nullptr;
     LiteOTAVoidCallback _beforeCb = nullptr;
     LiteOTAVoidCallback _afterCb = nullptr;
+
+    // ─── Web ───
+#if defined(LITEOTA_USE_WEB)
+    ESP8266WebServer *_webServer = nullptr;
+    char _webUser[32] = {0};
+    char _webPass[64] = {0};
+    char _webPrefix[16] = {0};
+    bool _webAuthOn = false;
+    bool _webAutoReboot = true;
+    bool _uploadActive = false;
+    bool _uploadAuthorized = false;
+    size_t _uploadBytes = 0;
+
+    void _webRegisterRoutes();
+    void _webHandleUpdatePage();
+    void _webHandleUpdateUpload();
+    void _webHandleOtaTrigger();
+    void _webHandleOtaStatus();
+    void _webHandleOtaAbort();
+#if defined(LITEOTA_USE_ROLLBACK)
+    void _webHandleOtaRollback();
+#endif
+    bool _webRequireAuth();
+    String _webPrefixStr() const;
+#endif
 
     // Internals
     void _setState(LiteOTAState s, LiteOTAError e = LiteOTAError::NONE);

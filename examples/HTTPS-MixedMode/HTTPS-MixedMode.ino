@@ -1,14 +1,14 @@
 /*
- * LiteOTA Mixed-Mode Example — الحل الكامل
+ * LiteOTA HTTPS Mixed-Mode Example
  *
  * Kitronic — https://github.com/kitronic/esp-lib-lite-ota
  *
  * Strategy:
- *   1. MFLN shrinks TLS buffers from 18KB → ~2KB
+ *   1. MFLN shrinks TLS buffers from 18KB -> ~2KB
  *   2. onBeforeRequest() disconnects MQTT during TLS
  *   3. onAfterRequest() reconnects MQTT
  *   4. Manifest via HTTPS, firmware via HTTP (mixed mode)
- *   5. Heap guard raises to 25KB only when TLS is active
+ *   5. Heap guard tuned for TLS
  */
 
 #define LITEOTA_USE_TLS
@@ -17,12 +17,12 @@
 #include <PubSubClient.h>
 #include <LiteOTA.h>
 
-#define WIFI_SSID     "your-ssid"
-#define WIFI_PASSWORD "your-password"
-#define MQTT_HOST     "broker.local"
+#define WIFI_SSID       "your-ssid"
+#define WIFI_PASSWORD   "your-password"
+#define MQTT_HOST       "broker.local"
 #define CURRENT_VERSION "1.0"
 
-// manifest HTTPS (صغير), firmware HTTP (كبير) → mixed mode
+// manifest HTTPS (small), firmware HTTP (large) -> mixed mode
 LiteOTA ota(CURRENT_VERSION, "https://kitronic.tech/ota/project.json");
 
 ESP8266WebServer server(80);
@@ -43,11 +43,11 @@ void setup() {
     server.on("/", []() { server.send(200, "text/plain", "OK"); });
     server.begin();
 
-    // ⚡⚡⚡ الإعدادات السحرية ⚡⚡⚡
-    ota.setInsecure();                 // لا نتحقق من الشهادة (أخف)
-    ota.enableMFLN(1024);              // 🔑 يصغّر بافر TLS من 16KB → 1KB
-    ota.setTLSBufferSizes(1024, 512);  // 🔑 بافرات BearSSL صغيرة
-    ota.setMinFreeHeap(20000);         // TLS يحتاج ~20KB بس مع MFLN
+    // ⚡ TLS tuning
+    ota.setInsecure();                 // skip cert check (lighter)
+    ota.enableMFLN(1024);              // 🔑 shrink TLS RX to 1 KB
+    ota.setTLSBufferSizes(1024, 512);  // 🔑 BearSSL buffers
+    ota.setMinFreeHeap(20000);         // TLS needs ~20 KB with MFLN
 
     // ⚡ Cooperative handoff
     ota.onBeforeRequest([]() {
@@ -55,7 +55,7 @@ void setup() {
         if (mqtt.connected()) {
             mqttWasConnected = true;
             mqtt.disconnect();
-            delay(100);  // خلّي TCP يتنفس
+            delay(100);
         }
     });
 
@@ -68,8 +68,6 @@ void setup() {
     });
 
     ota.begin();
-
-    // فحص عند الإقلاع
     ota.requestUpdate();
 }
 

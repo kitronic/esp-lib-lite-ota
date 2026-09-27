@@ -1,10 +1,7 @@
 /*
  * LiteOTA Basic Example
  *
- * Kitronic
- * info@kitronic.tech
- * www.kitronic.tech
- * https://github.com/kitronic/esp-lib-lite-ota
+ * Kitronic — https://github.com/kitronic/esp-lib-lite-ota
  *
  * Runs a single OTA check on boot.
  * Works with both JSON and plain-text manifests.
@@ -35,11 +32,27 @@ void setup() {
         Serial.print('.');
         yield();
     }
-    Serial.printf_P(PSTR("\nConnected. IP: %s\n"), WiFi.localIP().toString().c_str());
+    Serial.printf_P(PSTR("\nConnected. IP: %s\n"),
+                    WiFi.localIP().toString().c_str());
     Serial.printf_P(PSTR("Free heap before OTA: %u\n"), ESP.getFreeHeap());
 
-    ota.checkAndUpdate();
+    ota.onProgress([](size_t r, size_t t, uint8_t p) {
+        Serial.printf_P(PSTR("[OTA] %u/%u (%u%%)\n"), r, t, p);
+    });
 
+    ota.begin();
+    ota.requestUpdate();
+
+    // Non-blocking loop — wait here until done or failed
+    unsigned long start = millis();
+    while (ota.isUpdating() && millis() - start < 60000UL) {
+        ota.tick();
+        delay(5);
+        yield();
+    }
+
+    Serial.printf_P(PSTR("Final: state=%s err=%s\n"),
+                    ota.getStateName(), ota.getLastErrorName());
     Serial.printf_P(PSTR("Free heap after OTA: %u\n"), ESP.getFreeHeap());
 }
 

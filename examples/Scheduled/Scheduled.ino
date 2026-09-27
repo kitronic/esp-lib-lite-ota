@@ -1,10 +1,7 @@
 /*
  * LiteOTA Scheduled Example
  *
- * Kitronic
- * info@kitronic.tech
- * www.kitronic.tech
- * https://github.com/kitronic/esp-lib-lite-ota
+ * Kitronic — https://github.com/kitronic/esp-lib-lite-ota
  *
  * Checks for updates once per day at a specific hour.
  * Uses NTP for time. Non-blocking (millis-based).
@@ -56,6 +53,8 @@ void setup() {
         yield();
     }
     Serial.println(F("\nTime synced."));
+
+    ota.begin();
 }
 
 void loop() {
@@ -71,9 +70,10 @@ void loop() {
         if (onTargetTime && notDoneToday) {
             lastCheckedDay = ti->tm_mday;
             Serial.println(F("[Scheduler] Daily OTA check triggered"));
-            ota.checkAndUpdate();
+            ota.requestUpdate();
         }
     }
 
+    ota.tick();
     yield();
 }

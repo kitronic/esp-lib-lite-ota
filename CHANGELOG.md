@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [1.0.0] — 2024-XX-XX
+## [1.0.0] — 2026-09-27
 
 ### Added
 
@@ -35,6 +35,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `BACKUP_FIRMWARE` state in the state machine
 - New errors: `BACKUP_FAIL`, `ROLLBACK_FAIL`, `NO_BACKUP`, `FS_MOUNT_FAIL`
 - Enable with `#define LITEOTA_USE_ROLLBACK`
+
+#### Built-in Web Endpoints (optional)
+- Compile-time flag `LITEOTA_USE_WEB`
+- `attachWebServer()` — attach to any existing `ESP8266WebServer`
+- HTTP Basic Auth (optional `user` + `pass`)
+- Custom URL prefix via `setWebPrefix()`
+- Endpoints:
+  - `GET /update` — HTML upload page with status panel
+  - `POST /update` — firmware upload & flash
+  - `GET /ota` — trigger server-based OTA
+  - `GET /ota/status` — JSON status (state, progress, heap)
+  - `GET /ota/abort` — cancel in-flight OTA
+  - `GET /ota/rollback` — manual rollback (with `LITEOTA_USE_ROLLBACK`)
+- HTML served via `F()` macros — zero heap allocation
+- ~3-4 KB flash cost; zero cost when disabled
 
 #### TLS / HTTPS (optional)
 - Compile-time flag `LITEOTA_USE_TLS`
@@ -78,6 +93,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `NonBlocking` — full Web + MQTT + OTA integration
 - `HTTPS-MixedMode` — TLS manifest + HTTP firmware + MFLN + handoff
 - `SafeRollback` — automatic rollback on boot failure
+- `WebUpdate` — built-in `/update` browser page with auth
 
 #### Tests
 - Native tests (`test/native/`) — g++ / make, no PlatformIO required (29 tests)
@@ -94,6 +110,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Known Limitations
 - HTTP only by default — HTTPS requires `#define LITEOTA_USE_TLS`
 - Rollback requires `#define LITEOTA_USE_ROLLBACK` and ~500 KB free LittleFS
+- Web endpoints require `#define LITEOTA_USE_WEB`
 - Rollback cannot recover if `begin()` never executes (needs serial recovery)
 - No firmware signature verification
 - Buffer sizes fixed at compile time (`_firmwareUrl[192]`)
