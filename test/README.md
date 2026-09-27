@@ -78,8 +78,8 @@ Failed: 0
 Upload with PlatformIO:
 
 ```bash
-pio run -e d1_mini -t upload --upload-port /dev/ttyUSB0
-pio device monitor -b 115200
+# استخدم Arduino IDE مباشرة لرفع الأمثلة
+# أو أنشئ مشروع PlatformIO منفصل يعتمد على المكتبة
 ```
 
 ---

@@ -1,4 +1,4 @@
-name: Native Tests
+name: Tests & Build Check
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
     branches: [main, master, develop]
 
 jobs:
-  test:
-    name: ${{ matrix.cxx }} on ${{ matrix.os }}
+  native-tests:
+    name: Native (${{ matrix.cxx }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -16,7 +16,6 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         cxx: [g++, clang++]
         exclude:
-          # clang++ on ubuntu is fine; keep both on mac
           - os: ubuntu-latest
             cxx: clang++
 
@@ -35,3 +34,42 @@ jobs:
         env:
           CXX: ${{ matrix.cxx }}
         run: make -C test/native run
+
+  esp8266-build:
+    name: ESP8266 Compile Check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - example: Basic
+            flags: ""
+          - example: WebUpdate
+            flags: "-DLITEOTA_USE_WEB=1"
+          - example: SafeRollback
+            flags: "-DLITEOTA_USE_ROLLBACK=1"
+          - example: HTTPS-MixedMode
+            flags: "-DLITEOTA_USE_TLS=1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Install ESP8266 platform
+        run: pio platform install espressif8266
+
+      - name: Compile ${{ matrix.example }}
+        run: |
+          pio ci \
+            --board=d1_mini \
+            --lib=. \
+            --project-option="lib_deps=bblanchon/ArduinoJson@^6.19.0" \
+            --project-option="build_flags=${{ matrix.flags }}" \
+            --project-option="monitor_speed=115200" \
+            examples/${{ matrix.example }}

@@ -1434,7 +1434,7 @@ void LiteOTA::_webHandleUpdateUpload() {
             if (!Update.begin(maxSketch, U_FLASH)) {
                 _uploadAuthorized = false;
                 Serial.printf_P(PSTR("[LiteOTA] Update.begin failed: %s\n"),
-                                Update.errorString());
+                                Update.getErrorString());
                 return;
             }
 
@@ -1456,7 +1456,7 @@ void LiteOTA::_webHandleUpdateUpload() {
 
             if (Update.write(up.buf, up.currentSize) != up.currentSize) {
                 Serial.printf_P(PSTR("[LiteOTA] Update.write failed: %s\n"),
-                                Update.errorString());
+                                Update.getErrorString());
                 _uploadAuthorized = false;
                 return;
             }
@@ -1485,7 +1485,7 @@ void LiteOTA::_webHandleUpdateUpload() {
                 Serial.printf_P(PSTR("[LiteOTA] Update.end failed: %s\n"),
                                 Update.errorString());
                 _webServer->send(500, "text/plain",
-                    String("Update failed: ") + Update.errorString());
+                    String("Update failed: ") + Update.getErrorString());
                 return;
             }
 
