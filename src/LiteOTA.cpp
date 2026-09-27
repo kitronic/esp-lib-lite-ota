@@ -1434,71 +1434,54 @@ bool LiteOTA::_webRequireAuth()
     return false;
 }
 
-// ─── GET /update ─── (chunked, PROGMEM, zero String)
+// ─── GET /update ─── (single buffer, zero heap, zero fragmentation)
 void LiteOTA::_webHandleUpdatePage() {
     if (!_webRequireAuth()) return;
 
-    // Start chunked response — IMPORTANT:
-    //   setContentLength() + send() (empty String) enables chunked mode.
-    //   Do NOT use send_P() here — it overrides chunked with Content-Length.
-    _webServer->setContentLength(CONTENT_LENGTH_UNKNOWN);
-    _webServer->send(200, "text/html", "");
+    // Static buffer — lives in .bss, not heap, not stack
+    static char html[2048];
+    int n = 0;
+    int rem = sizeof(html);
 
-    // Upload form
-    _webServer->sendContent_P(HTML_HEAD);
-    _webServer->sendContent_P(HTML_FORM_START);
-    _webServer->sendContent(_webPrefix);
-    _webServer->sendContent_P(HTML_FORM_MID);
+    // ═══ HTML head + styles (PROGMEM) ═══
+    n += snprintf_P(html + n, rem - n, PSTR("%S"), HTML_HEAD);
 
-    // Server OTA links
-    _webServer->sendContent_P(HTML_OTA_START);
-    _webServer->sendContent(_webPrefix);
-    _webServer->sendContent_P(HTML_LINK_OTA);
-    _webServer->sendContent(_webPrefix);
-    _webServer->sendContent_P(HTML_LINK_STATUS);
-    _webServer->sendContent(_webPrefix);
-    _webServer->sendContent_P(HTML_LINK_ABORT);
+    // ═══ Upload form ═══
+    n += snprintf_P(html + n, rem - n, PSTR("%S%s%S"),
+                    HTML_FORM_START, _webPrefix, HTML_FORM_MID);
+
+    // ═══ OTA links row ═══
+    n += snprintf_P(html + n, rem - n, PSTR("%S%s%S%s%S%s%S"),
+                    HTML_OTA_START, _webPrefix, HTML_LINK_OTA,
+                    _webPrefix, HTML_LINK_STATUS,
+                    _webPrefix, HTML_LINK_ABORT);
 #if defined(LITEOTA_USE_ROLLBACK)
-    _webServer->sendContent_P(HTML_LINK_RB1);
-    _webServer->sendContent(_webPrefix);
-    _webServer->sendContent_P(HTML_LINK_RB2);
+    n += snprintf_P(html + n, rem - n, PSTR("%S%s%S"),
+                    HTML_LINK_RB1, _webPrefix, HTML_LINK_RB2);
 #endif
-    _webServer->sendContent_P(HTML_OTA_END);
+    n += snprintf_P(html + n, rem - n, PSTR("%S"), HTML_OTA_END);
 
-    // Status block
-    _webServer->sendContent_P(HTML_STATUS_START);
+    // ═══ Status block ═══
+    n += snprintf_P(html + n, rem - n, PSTR("%S"), HTML_STATUS_START);
+    n += snprintf_P(html + n, rem - n,
+                    PSTR("Version   : %s\n"
+                         "State     : %s\n"
+                         "LastError : %s\n"
+                         "TLS       : %s\n"
+                         "Rollback  : %s\n"
+                         "Free heap : %u bytes\n"
+                         "Uptime    : %lu s\n"),
+                    _currentVersion,
+                    getStateName(),
+                    getLastErrorName(),
+                    isTLSEnabled()    ? "ON" : "OFF",
+                    _rollbackEnabled  ? "ON" : "OFF",
+                    (unsigned)ESP.getFreeHeap(),
+                    (unsigned long)(millis() / 1000));
+    n += snprintf_P(html + n, rem - n, PSTR("%S"), HTML_FOOTER);
 
-    char buf[80];
-    snprintf_P(buf, sizeof(buf), PSTR("Version   : %s\n"), _currentVersion);
-    _webServer->sendContent(buf);
-
-    snprintf_P(buf, sizeof(buf), PSTR("State     : %s\n"), getStateName());
-    _webServer->sendContent(buf);
-
-    snprintf_P(buf, sizeof(buf), PSTR("LastError : %s\n"), getLastErrorName());
-    _webServer->sendContent(buf);
-
-    snprintf_P(buf, sizeof(buf), PSTR("TLS       : %s\n"),
-               isTLSEnabled() ? "ON" : "OFF");
-    _webServer->sendContent(buf);
-
-    snprintf_P(buf, sizeof(buf), PSTR("Rollback  : %s\n"),
-               _rollbackEnabled ? "ON" : "OFF");
-    _webServer->sendContent(buf);
-
-    snprintf_P(buf, sizeof(buf), PSTR("Free heap : %u bytes\n"),
-               (unsigned)ESP.getFreeHeap());
-    _webServer->sendContent(buf);
-
-    snprintf_P(buf, sizeof(buf), PSTR("Uptime    : %lu s\n"),
-               (unsigned long)(millis() / 1000));
-    _webServer->sendContent(buf);
-
-    _webServer->sendContent_P(HTML_FOOTER);
-
-    // End chunked + close connection
-    _webServer->sendContent("");
-    _webServer->client().stop();
+    // Send as single response — no chunked mode
+    _webServer->send(200, "text/html", html);
 }
 
 // ─── POST /update ───
