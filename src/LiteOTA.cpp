@@ -1435,18 +1435,19 @@ bool LiteOTA::_webRequireAuth()
 }
 
 // ─── GET /update ─── (chunked, PROGMEM, zero String)
-void LiteOTA::_webHandleUpdatePage()
-{
-    if (!_webRequireAuth())
-        return;
+void LiteOTA::_webHandleUpdatePage() {
+    if (!_webRequireAuth()) return;
 
-    // Start chunked response
+    // Start chunked response — IMPORTANT:
+    //   setContentLength() + send() (empty String) enables chunked mode.
+    //   Do NOT use send_P() here — it overrides chunked with Content-Length.
     _webServer->setContentLength(CONTENT_LENGTH_UNKNOWN);
-    _webServer->send_P(200, PSTR("text/html"), HTML_HEAD);
+    _webServer->send(200, "text/html", "");
 
     // Upload form
+    _webServer->sendContent_P(HTML_HEAD);
     _webServer->sendContent_P(HTML_FORM_START);
-    _webServer->sendContent(_webPrefix); // dynamic prefix (RAM)
+    _webServer->sendContent(_webPrefix);
     _webServer->sendContent_P(HTML_FORM_MID);
 
     // Server OTA links
@@ -1494,7 +1495,10 @@ void LiteOTA::_webHandleUpdatePage()
     _webServer->sendContent(buf);
 
     _webServer->sendContent_P(HTML_FOOTER);
-    _webServer->sendContent(""); // end chunked
+
+    // End chunked + close connection
+    _webServer->sendContent("");
+    _webServer->client().stop();
 }
 
 // ─── POST /update ───
